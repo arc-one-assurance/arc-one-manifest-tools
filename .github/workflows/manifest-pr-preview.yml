@@ -1,0 +1,200 @@
+# Reusable workflow — Manifest PR Preview (validate → gate → dry-run).
+#
+# Usage in an agent repo:
+#   jobs:
+#     preview:
+#       uses: arc-one-assurance/arc-one-manifest-tools/.github/workflows/manifest-pr-preview.yml@v1.0.0
+#       secrets: inherit
+
+name: Manifest PR Preview
+
+on:
+  workflow_call:
+    inputs:
+      tools_ref:
+        type: string
+        default: v1.0.0
+        description: Pin arc-one-manifest-tools ref (semver tag)
+      manifest_path:
+        type: string
+        default: arc-one.agent.yaml
+      resolved_manifest_path:
+        type: string
+        default: arc-one.agent.resolved.yaml
+      connector_resolve_command:
+        type: string
+        default: ""
+        description: Optional shell snippet to produce resolved manifest before gate/register
+      arc_one_ui_url:
+        type: string
+        default: https://arc-one-sandbox.web.app
+      workspace_label:
+        type: string
+        default: ""
+        description: Human label for PR comment (e.g. ws_bbva_poc)
+    secrets:
+      ARC_ONE_API_BASE_URL:
+        required: true
+      ARC_ONE_BEARER_TOKEN:
+        required: true
+      ARC_ONE_AGENT_ID:
+        required: false
+      ARC_ONE_REGISTRATION_OWNER_USER_ID:
+        required: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    name: Validate + Gate + dry-run
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: arc-one-registration
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Arc One Manifest CLI
+        uses: arc-one-assurance/arc-one-manifest-tools/setup@v1.0.0
+        with:
+          tools_ref: ${{ inputs.tools_ref }}
+
+      - name: Validar estructura MADRE v1.1
+        run: arc-one-manifest validate "${{ inputs.manifest_path }}"
+
+      - name: Read manifest metadata
+        id: meta
+        run: |
+          python - <<'PY'
+          import os, yaml
+          m = yaml.safe_load(open("${{ inputs.manifest_path }}"))
+          agent_id = m.get("agent_id") or m.get("agentId") or ""
+          version = m.get("agent_version") or m.get("agentVersion") or "?"
+          name = m.get("name") or "?"
+          with open(os.environ["GITHUB_OUTPUT"], "a") as f:
+              f.write(f"agent_id={agent_id}\n")
+              f.write(f"version={version}\n")
+              f.write(f"name={name}\n")
+          PY
+
+      - name: Resolver connector (opcional)
+        if: inputs.connector_resolve_command != ''
+        run: ${{ inputs.connector_resolve_command }}
+
+      - name: Validar manifest resuelto
+        if: inputs.connector_resolve_command != ''
+        run: arc-one-manifest validate "${{ inputs.resolved_manifest_path }}" --no-placeholder
+
+      - name: CI Gate — drift + semver
+        env:
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
+        run: |
+          MANIFEST="${{ inputs.resolved_manifest_path }}"
+          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+            MANIFEST="${{ inputs.manifest_path }}"
+          fi
+          arc-one-manifest gate "$MANIFEST" | tee gate.log
+
+      - name: Dry-run registro Arc One
+        id: dryrun
+        env:
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_REGISTRATION_OWNER_USER_ID: ${{ secrets.ARC_ONE_REGISTRATION_OWNER_USER_ID }}
+        run: |
+          MANIFEST="${{ inputs.resolved_manifest_path }}"
+          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+            MANIFEST="${{ inputs.manifest_path }}"
+          fi
+          arc-one-manifest register "$MANIFEST" --dry-run | tee dryrun.json
+
+      - name: Resumen en job summary
+        if: github.event_name == 'pull_request'
+        run: |
+          {
+            echo "## Manifest PR Preview — OK"
+            echo ""
+            echo "| Campo | Valor |"
+            echo "|-------|-------|"
+            echo "| Agente | ${{ steps.meta.outputs.name }} |"
+            echo "| agent_id | \`${{ steps.meta.outputs.agent_id || 'n/a' }}\` |"
+            echo "| Versión propuesta | \`${{ steps.meta.outputs.version }}\` |"
+            echo ""
+            echo "### Dry-run Arc One"
+            echo '```json'
+            cat dryrun.json
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Comentario en el PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const fs = require('fs');
+            const dryrun = fs.readFileSync('dryrun.json', 'utf8');
+            const ws = process.env.WORKSPACE_LABEL ? ` (${process.env.WORKSPACE_LABEL})` : '';
+            const body = [
+              '## ✅ Manifest PR Preview — listo para merge',
+              '',
+              '| Campo | Valor |',
+              '|-------|-------|',
+              `| Agente | ${process.env.NAME} |`,
+              `| agent_id | \`${process.env.AGENT_ID || 'n/a'}\` |`,
+              `| Versión propuesta | \`${process.env.VERSION}\` |`,
+              '',
+              '### Dry-run (Arc One)',
+              '```json',
+              dryrun.trim(),
+              '```',
+              '',
+              `**Próximo paso:** mergeá el PR → se publica la versión en [Arc One](${process.env.ARC_ONE_UI})${ws}.`,
+            ].join('\n');
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body,
+            });
+        env:
+          NAME: ${{ steps.meta.outputs.name }}
+          AGENT_ID: ${{ steps.meta.outputs.agent_id }}
+          VERSION: ${{ steps.meta.outputs.version }}
+          ARC_ONE_UI: ${{ inputs.arc_one_ui_url }}
+          WORKSPACE_LABEL: ${{ inputs.workspace_label }}
+
+  fork-note:
+    name: Fork — validación limitada
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arc-one-assurance/arc-one-manifest-tools/setup@v1.0.0
+        with:
+          tools_ref: ${{ inputs.tools_ref }}
+
+      - name: Validar estructura MADRE v1.1
+        run: arc-one-manifest validate "${{ inputs.manifest_path }}"
+
+      - uses: actions/github-script@v7
+        with:
+          script: |
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: [
+                '## ℹ️ PR desde fork',
+                '',
+                'Este PR viene de un fork: GitHub **no expone secrets** a workflows de forks.',
+                '',
+                'Validación local: estructura MADRE v1.1 OK.',
+                '',
+                'Para dry-run completo contra Arc One, abrí el PR desde una rama del repo principal.',
+              ].join('\n'),
+            });

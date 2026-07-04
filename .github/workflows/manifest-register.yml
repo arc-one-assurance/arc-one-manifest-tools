@@ -1,0 +1,138 @@
+# Reusable workflow — Register manifest on merge to main.
+#
+# Usage in an agent repo:
+#   jobs:
+#     register:
+#       uses: arc-one-assurance/arc-one-manifest-tools/.github/workflows/manifest-register.yml@v1.0.0
+#       secrets: inherit
+
+name: Manifest Register
+
+on:
+  workflow_call:
+    inputs:
+      tools_ref:
+        type: string
+        default: v1.0.0
+      manifest_path:
+        type: string
+        default: arc-one.agent.yaml
+      resolved_manifest_path:
+        type: string
+        default: arc-one.agent.resolved.yaml
+      connector_resolve_command:
+        type: string
+        default: ""
+      apply_on_push:
+        type: boolean
+        default: true
+        description: When false, only validate + gate + dry-run (manual dry_run_only mode)
+      arc_one_ui_url:
+        type: string
+        default: https://arc-one-sandbox.web.app
+      workspace_label:
+        type: string
+        default: ""
+    secrets:
+      ARC_ONE_API_BASE_URL:
+        required: true
+      ARC_ONE_BEARER_TOKEN:
+        required: true
+      ARC_ONE_AGENT_ID:
+        required: false
+      ARC_ONE_REGISTRATION_OWNER_USER_ID:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  register:
+    name: Publicar versión
+    runs-on: ubuntu-latest
+    environment: arc-one-registration
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arc-one-assurance/arc-one-manifest-tools/setup@v1.0.0
+        with:
+          tools_ref: ${{ inputs.tools_ref }}
+
+      - name: Validar estructura MADRE v1.1
+        run: arc-one-manifest validate "${{ inputs.manifest_path }}"
+
+      - name: Resolver connector (opcional)
+        if: inputs.connector_resolve_command != ''
+        run: ${{ inputs.connector_resolve_command }}
+
+      - name: Validar manifest resuelto
+        if: inputs.connector_resolve_command != ''
+        run: arc-one-manifest validate "${{ inputs.resolved_manifest_path }}" --no-placeholder
+
+      - name: CI Gate — manifest drift + semver
+        id: gate
+        env:
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
+        run: |
+          MANIFEST="${{ inputs.resolved_manifest_path }}"
+          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+            MANIFEST="${{ inputs.manifest_path }}"
+          fi
+          arc-one-manifest gate "$MANIFEST" | tee gate.log
+          if grep -q "CI Gate OK: no drift" gate.log; then
+            echo "skip_apply=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Sin cambios material (skip registro)
+        if: steps.gate.outputs.skip_apply == 'true'
+        run: echo "Manifest sin drift vs Arc One — no se publica versión duplicada." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry-run registration
+        if: steps.gate.outputs.skip_apply != 'true'
+        env:
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_REGISTRATION_OWNER_USER_ID: ${{ secrets.ARC_ONE_REGISTRATION_OWNER_USER_ID }}
+        run: |
+          MANIFEST="${{ inputs.resolved_manifest_path }}"
+          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+            MANIFEST="${{ inputs.manifest_path }}"
+          fi
+          arc-one-manifest register "$MANIFEST" --dry-run
+
+      - name: Apply registration (new version)
+        id: apply
+        if: steps.gate.outputs.skip_apply != 'true' && inputs.apply_on_push
+        env:
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_REGISTRATION_OWNER_USER_ID: ${{ secrets.ARC_ONE_REGISTRATION_OWNER_USER_ID }}
+        run: |
+          MANIFEST="${{ inputs.resolved_manifest_path }}"
+          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+            MANIFEST="${{ inputs.manifest_path }}"
+          fi
+          arc-one-manifest register "$MANIFEST" | tee registration.json
+
+      - name: Resumen — versión publicada
+        if: steps.apply.outcome == 'success'
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          data = json.load(open("registration.json"))
+          agent_id = data.get("id") or "?"
+          version = data.get("versionNumber") or "?"
+          mode = data.get("mode") or "?"
+          estado = data.get("estado") or "?"
+          print("## ✅ Versión registrada en Arc One")
+          print()
+          print("| Campo | Valor |")
+          print("|-------|-------|")
+          print(f"| agent_id | `{agent_id}` |")
+          print(f"| Versión | `{version}` |")
+          print(f"| Modo | {mode} |")
+          print(f"| Estado | {estado} |")
+          PY

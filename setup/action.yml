@@ -1,0 +1,31 @@
+name: Setup Arc One Manifest CLI
+description: Install arc-one-manifest CLI from this repository at a pinned ref.
+
+inputs:
+  tools_ref:
+    description: Git ref of arc-one-manifest-tools (tag recommended, e.g. v1.0.0)
+    required: false
+    default: v1.0.0
+  python_version:
+    description: Python version for the CLI
+    required: false
+    default: "3.12"
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout arc-one-manifest-tools
+      uses: actions/checkout@v4
+      with:
+        repository: arc-one-assurance/arc-one-manifest-tools
+        ref: ${{ inputs.tools_ref }}
+        path: .arc-one-manifest-tools
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python_version }}
+
+    - name: Install CLI
+      shell: bash
+      run: pip install -e .arc-one-manifest-tools
