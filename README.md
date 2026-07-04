@@ -37,9 +37,11 @@ arc-one-manifest register arc-one.agent.yaml --dry-run
 
 ---
 
-## Integración en un repo de agente
+## Integración en repos existentes
 
-Ver [`docs/INTEGRATION.md`](docs/INTEGRATION.md).
+Guía compartible (checklist + archivos a agregar): **[CONECTAR_TU_REPO.md](docs/CONECTAR_TU_REPO.md)**
+
+Repo de ejemplo: [arc-one-demo-nova-aws](https://github.com/arc-one-assurance/arc-one-demo-nova-aws)
 
 Workflow de PR (ejemplo mínimo):
 

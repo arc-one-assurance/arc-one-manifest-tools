@@ -137,4 +137,6 @@ No uses `@main` en producción — siempre pin semver.
 
 ## Referencia
 
-Repo de ejemplo (PoC BBVA): [arc-one-demo-nova-aws](https://github.com/arc-one-assurance/arc-one-demo-nova-aws)
+- **Guía compartible:** [CONECTAR_TU_REPO.md](./docs/CONECTAR_TU_REPO.md)
+- Repo de ejemplo: [arc-one-demo-nova-aws](https://github.com/arc-one-assurance/arc-one-demo-nova-aws)
+- Detalle técnico: [INTEGRATION.md](./docs/INTEGRATION.md) · [SCHEMA.md](./docs/SCHEMA.md)
