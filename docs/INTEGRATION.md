@@ -57,12 +57,8 @@ jobs:
   preview:
     uses: arc-one-assurance/arc-one-manifest-tools/.github/workflows/manifest-pr-preview.yml@v1.0.0
     with:
-      tools_ref: v1.0.0
-      connector_resolve_command: |
-        chmod +x .github/scripts/patch-manifest-connector.sh
-        AWS_SERVICE_URL="${{ secrets.AWS_SERVICE_URL }}" \
-          .github/scripts/patch-manifest-connector.sh \
-          arc-one.agent.yaml arc-one.agent.resolved.yaml
+      tools_ref: v1.0.1
+      connector_patch_script: .github/scripts/patch-manifest-connector.sh
       arc_one_ui_url: https://arc-one-sandbox.web.app
       workspace_label: ws_bbva_poc
     secrets: inherit
@@ -71,7 +67,7 @@ jobs:
 Flujo automático en cada PR:
 
 1. **validate** — campos obligatorios MADRE v1.1
-2. **patch connector** — tu script (infra específica)
+2. **patch connector** — script del repo agente + secret `AWS_SERVICE_URL`
 3. **validate** — connector con URL real
 4. **gate** — drift vs Arc One + semver bump
 5. **register --dry-run** — preview API
@@ -105,12 +101,8 @@ jobs:
   register:
     uses: arc-one-assurance/arc-one-manifest-tools/.github/workflows/manifest-register.yml@v1.0.0
     with:
-      tools_ref: v1.0.0
-      connector_resolve_command: |
-        chmod +x .github/scripts/patch-manifest-connector.sh
-        AWS_SERVICE_URL="${{ secrets.AWS_SERVICE_URL }}" \
-          .github/scripts/patch-manifest-connector.sh \
-          arc-one.agent.yaml arc-one.agent.resolved.yaml
+      tools_ref: v1.0.1
+      connector_patch_script: .github/scripts/patch-manifest-connector.sh
       apply_on_push: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run_only) }}
       workspace_label: ws_bbva_poc
     secrets: inherit

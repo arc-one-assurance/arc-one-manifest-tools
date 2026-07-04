@@ -21,10 +21,10 @@ on:
       resolved_manifest_path:
         type: string
         default: arc-one.agent.resolved.yaml
-      connector_resolve_command:
+      connector_patch_script:
         type: string
         default: ""
-        description: Optional shell snippet to produce resolved manifest before gate/register
+        description: Path to script that patches connector URL (runs with AWS_SERVICE_URL secret)
       arc_one_ui_url:
         type: string
         default: https://arc-one-sandbox.web.app
@@ -41,6 +41,9 @@ on:
         required: false
       ARC_ONE_REGISTRATION_OWNER_USER_ID:
         required: false
+      AWS_SERVICE_URL:
+        required: false
+        description: Base URL for connector patch script (e.g. ALB without /api/v1/chat)
 
 permissions:
   contents: read
@@ -79,12 +82,18 @@ jobs:
               f.write(f"name={name}\n")
           PY
 
-      - name: Resolver connector (opcional)
-        if: inputs.connector_resolve_command != ''
-        run: ${{ inputs.connector_resolve_command }}
+      - name: Patch connector URL
+        if: inputs.connector_patch_script != ''
+        env:
+          AWS_SERVICE_URL: ${{ secrets.AWS_SERVICE_URL }}
+        run: |
+          chmod +x "${{ inputs.connector_patch_script }}"
+          "${{ inputs.connector_patch_script }}" \
+            "${{ inputs.manifest_path }}" \
+            "${{ inputs.resolved_manifest_path }}"
 
       - name: Validar manifest resuelto
-        if: inputs.connector_resolve_command != ''
+        if: inputs.connector_patch_script != ''
         run: arc-one-manifest validate "${{ inputs.resolved_manifest_path }}" --no-placeholder
 
       - name: CI Gate — drift + semver
@@ -94,7 +103,7 @@ jobs:
           ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
         run: |
           MANIFEST="${{ inputs.resolved_manifest_path }}"
-          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+          if [ -z "${{ inputs.connector_patch_script }}" ]; then
             MANIFEST="${{ inputs.manifest_path }}"
           fi
           arc-one-manifest gate "$MANIFEST" | tee gate.log
@@ -107,7 +116,7 @@ jobs:
           ARC_ONE_REGISTRATION_OWNER_USER_ID: ${{ secrets.ARC_ONE_REGISTRATION_OWNER_USER_ID }}
         run: |
           MANIFEST="${{ inputs.resolved_manifest_path }}"
-          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+          if [ -z "${{ inputs.connector_patch_script }}" ]; then
             MANIFEST="${{ inputs.manifest_path }}"
           fi
           arc-one-manifest register "$MANIFEST" --dry-run | tee dryrun.json

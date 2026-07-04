@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "arc-one-manifest"
-version = "1.0.0"
+version = "1.0.1"
 description = "CLI and validation library for Arc One agent manifests (MADRE v1.1)"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -20,7 +20,7 @@ on:
       resolved_manifest_path:
         type: string
         default: arc-one.agent.resolved.yaml
-      connector_resolve_command:
+      connector_patch_script:
         type: string
         default: ""
       apply_on_push:
@@ -42,6 +42,8 @@ on:
         required: false
       ARC_ONE_REGISTRATION_OWNER_USER_ID:
         required: false
+      AWS_SERVICE_URL:
+        required: false
 
 permissions:
   contents: read
@@ -62,12 +64,18 @@ jobs:
       - name: Validar estructura MADRE v1.1
         run: arc-one-manifest validate "${{ inputs.manifest_path }}"
 
-      - name: Resolver connector (opcional)
-        if: inputs.connector_resolve_command != ''
-        run: ${{ inputs.connector_resolve_command }}
+      - name: Patch connector URL
+        if: inputs.connector_patch_script != ''
+        env:
+          AWS_SERVICE_URL: ${{ secrets.AWS_SERVICE_URL }}
+        run: |
+          chmod +x "${{ inputs.connector_patch_script }}"
+          "${{ inputs.connector_patch_script }}" \
+            "${{ inputs.manifest_path }}" \
+            "${{ inputs.resolved_manifest_path }}"
 
       - name: Validar manifest resuelto
-        if: inputs.connector_resolve_command != ''
+        if: inputs.connector_patch_script != ''
         run: arc-one-manifest validate "${{ inputs.resolved_manifest_path }}" --no-placeholder
 
       - name: CI Gate — manifest drift + semver
@@ -78,7 +86,7 @@ jobs:
           ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
         run: |
           MANIFEST="${{ inputs.resolved_manifest_path }}"
-          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+          if [ -z "${{ inputs.connector_patch_script }}" ]; then
             MANIFEST="${{ inputs.manifest_path }}"
           fi
           arc-one-manifest gate "$MANIFEST" | tee gate.log
@@ -98,7 +106,7 @@ jobs:
           ARC_ONE_REGISTRATION_OWNER_USER_ID: ${{ secrets.ARC_ONE_REGISTRATION_OWNER_USER_ID }}
         run: |
           MANIFEST="${{ inputs.resolved_manifest_path }}"
-          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+          if [ -z "${{ inputs.connector_patch_script }}" ]; then
             MANIFEST="${{ inputs.manifest_path }}"
           fi
           arc-one-manifest register "$MANIFEST" --dry-run
@@ -112,7 +120,7 @@ jobs:
           ARC_ONE_REGISTRATION_OWNER_USER_ID: ${{ secrets.ARC_ONE_REGISTRATION_OWNER_USER_ID }}
         run: |
           MANIFEST="${{ inputs.resolved_manifest_path }}"
-          if [ -z "${{ inputs.connector_resolve_command }}" ]; then
+          if [ -z "${{ inputs.connector_patch_script }}" ]; then
             MANIFEST="${{ inputs.manifest_path }}"
           fi
           arc-one-manifest register "$MANIFEST" | tee registration.json
