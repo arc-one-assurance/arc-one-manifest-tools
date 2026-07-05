@@ -26,7 +26,8 @@ def _cmd_validate(args: argparse.Namespace) -> None:
         raise SystemExit(1) from exc
     name = manifest.get("name", "?")
     version = manifest.get("agent_version") or manifest.get("agentVersion") or "?"
-    print(f"Manifest OK · MADRE v1.1 · {name} · {version}")
+    mv = manifest.get("manifest_version") or manifest.get("manifestVersion") or "?"
+    print(f"Manifest OK · v1.1/v1.2 · {name} · {version} (manifest {mv})")
 
 
 def _cmd_gate(args: argparse.Namespace) -> None:

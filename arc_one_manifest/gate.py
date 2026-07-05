@@ -27,6 +27,8 @@ _MATERIAL_PATHS = frozenset(
         "data_stores",
         "secrets_required",
         "knowledge_bases",
+        "agent_dependencies",
+        "mcp_servers",
         "purpose",
         "regulated_context",
         "network_exposure",

@@ -4,7 +4,11 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Sequence
 
-MANIFEST_VERSION = "1.1"
+MANIFEST_VERSION = "1.2"
+MANIFEST_VERSIONS = frozenset({"1.1", "1.2"})
+
+AGENT_RELATION_TYPES = frozenset({"INVOKE", "DELEGATE", "COORDINATE"})
+MCP_TRANSPORTS = frozenset({"stdio", "sse", "streamable-http"})
 
 EMAIL_RE = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 SEMVER_RE = re.compile(r"^[0-9]+\.[0-9]+\.[0-9]+$")
@@ -313,13 +317,63 @@ def _validate_connector(
                 _err(errors, f"{path}.timeoutMs", "debe estar entre 1000 y 120000")
 
 
+def _validate_mcp_servers(errors: List[str], items: Any, path: str = "mcp_servers") -> None:
+    if items is None:
+        return
+    if not isinstance(items, list):
+        _err(errors, path, "debe ser una lista")
+        return
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            _err(errors, f"{path}[{idx}]", "debe ser un objeto")
+            continue
+        mcp_id = str(
+            item.get("mcp_id")
+            or item.get("mcpId")
+            or item.get("identifier")
+            or item.get("id")
+            or ""
+        ).strip()
+        if not mcp_id:
+            _err(errors, f"{path}[{idx}]", "falta `mcp_id` o `identifier`")
+        transport = str(item.get("transport") or "").strip()
+        if transport and transport not in MCP_TRANSPORTS:
+            _err(errors, f"{path}[{idx}].transport", f"valor inválido `{transport}`")
+        backed = item.get("backed_by_assets") or item.get("backedByAssets")
+        if backed is not None and not isinstance(backed, list):
+            _err(errors, f"{path}[{idx}].backed_by_assets", "debe ser una lista")
+
+
+def _validate_agent_dependencies(errors: List[str], items: Any, path: str = "agent_dependencies") -> None:
+    if items is None:
+        return
+    if not isinstance(items, list):
+        _err(errors, path, "debe ser una lista")
+        return
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            _err(errors, f"{path}[{idx}]", "debe ser un objeto")
+            continue
+        agent_id = str(item.get("agent_id") or item.get("agentId") or "").strip()
+        rel = item.get("relation_type") or item.get("relationType")
+        if not agent_id:
+            _err(errors, f"{path}[{idx}]", "falta `agent_id`")
+        if not isinstance(rel, list) or not rel:
+            _err(errors, f"{path}[{idx}].relation_type", "debe ser una lista no vacía")
+            continue
+        for rt in rel:
+            rt_str = str(rt).strip().upper()
+            if rt_str not in AGENT_RELATION_TYPES:
+                _err(errors, f"{path}[{idx}].relation_type", f"valor inválido `{rt_str}`")
+
+
 def validate_madre_manifest(
     manifest: Dict[str, Any],
     *,
     allow_connector_placeholder: bool = True,
     require_connector: bool = True,
 ) -> None:
-    """Validate MADRE v1.1 YAML structure. Raises ManifestValidationError on failure."""
+    """Validate manifest YAML structure (v1.1 / v1.2). Raises ManifestValidationError on failure."""
     errors: List[str] = []
 
     if not isinstance(manifest, dict):
@@ -328,8 +382,8 @@ def validate_madre_manifest(
     mv = str(manifest.get("manifest_version") or manifest.get("manifestVersion") or "").strip()
     if not mv:
         _err(errors, "manifest_version", "campo obligatorio faltante")
-    elif mv != MANIFEST_VERSION:
-        _err(errors, "manifest_version", f"debe ser `{MANIFEST_VERSION}` (recibido `{mv}`)")
+    elif mv not in MANIFEST_VERSIONS:
+        _err(errors, "manifest_version", f"debe ser una versión soportada ({', '.join(sorted(MANIFEST_VERSIONS))}) (recibido `{mv}`)")
 
     name = _require_str(errors, manifest, "name", "name")
     if name and len(name) > 128:
@@ -469,6 +523,14 @@ def validate_madre_manifest(
     _validate_knowledge_bases(
         errors,
         manifest.get("knowledge_bases") or manifest.get("knowledgeBases"),
+    )
+    _validate_agent_dependencies(
+        errors,
+        manifest.get("agent_dependencies") or manifest.get("agentDependencies"),
+    )
+    _validate_mcp_servers(
+        errors,
+        manifest.get("mcp_servers") or manifest.get("mcpServers"),
     )
 
     autonomy = str(manifest.get("autonomy_level") or manifest.get("autonomyLevel") or "").strip()
