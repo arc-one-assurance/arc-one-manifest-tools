@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -17,9 +18,31 @@ from arc_one_manifest.intelligence.git_diff import (
     list_repo_files,
     read_file_lines,
 )
-from arc_one_manifest.intelligence.judge import run_judge
+from arc_one_manifest.intelligence.judge import run_judge, run_platform_judge
 from arc_one_manifest.intelligence.manifest_summary import declared_ids_for_section, summarize_manifest
 from arc_one_manifest.intelligence.models import AuditFinding, AuditReport, CodeSignal, ManifestSummary
+
+
+def _platform_creds() -> tuple[str, str] | None:
+    base = os.environ.get("ARC_ONE_API_BASE_URL", "").strip()
+    token = os.environ.get("ARC_ONE_BEARER_TOKEN", "").strip()
+    if base and token:
+        return base, token
+    return None
+
+
+def _use_platform_judge() -> bool:
+    mode = os.environ.get("ARC_ONE_AUDIT_JUDGE", "platform").strip().lower()
+    return mode in ("platform", "arc-one", "auto", "")
+
+
+def _use_local_llm_judge() -> bool:
+    mode = os.environ.get("ARC_ONE_AUDIT_JUDGE", "platform").strip().lower()
+    if mode == "local":
+        return bool(os.environ.get("ARC_ONE_LLM_API_KEY", "").strip())
+    if mode in ("platform", "arc-one"):
+        return False
+    return bool(os.environ.get("ARC_ONE_LLM_API_KEY", "").strip())
 
 
 def _normalize_id(value: str) -> str:
@@ -154,15 +177,29 @@ def run_audit(
     clean = len(findings) == 0
 
     if not static_only and signals:
+        judge_min = min(min_confidence, 0.7)
+        platform = _platform_creds() if _use_platform_judge() else None
         try:
-            judge_min = min(min_confidence, 0.7)
-            findings, clean, judge_model = run_judge(
-                manifest_path=str(manifest_file),
-                summary=summary,
-                signals=signals,
-                client=judge_client,  # type: ignore[arg-type]
-                min_confidence=judge_min,
-            )
+            if platform is not None:
+                findings, clean, judge_model = run_platform_judge(
+                    manifest_path=str(manifest_file),
+                    summary=summary,
+                    signals=signals,
+                    base_url=platform[0],
+                    token=platform[1],
+                    min_confidence=judge_min,
+                )
+                static_only = False
+            elif _use_local_llm_judge():
+                findings, clean, judge_model = run_judge(
+                    manifest_path=str(manifest_file),
+                    summary=summary,
+                    signals=signals,
+                    client=judge_client,  # type: ignore[arg-type]
+                    min_confidence=judge_min,
+                )
+            else:
+                raise ValueError("no judge configured")
         except (ValueError, httpx.HTTPError) as exc:
             print(
                 f"WARN: LLM judge unavailable ({exc}); falling back to static-only.",
