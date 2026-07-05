@@ -212,3 +212,72 @@ def run_judge(
     clean = len(blocking) == 0
     model = getattr(judge_client, "_model", _DEFAULT_MODEL) if isinstance(judge_client, AnthropicJudgeClient) else None
     return findings, clean, model
+
+
+def run_platform_judge(
+    *,
+    manifest_path: str,
+    summary: ManifestSummary,
+    signals: list[CodeSignal],
+    base_url: str,
+    token: str,
+    manifest_changed_in_pr: bool = False,
+    min_confidence: float = 0.7,
+    timeout: float = 60.0,
+) -> tuple[list[AuditFinding], bool, str | None]:
+    """Judge hosted en Arc One API — sin LLM key en el repo agente."""
+    if not signals:
+        return [], True, None
+
+    api_body = {
+        "manifestPath": manifest_path,
+        "manifestSummary": summary.to_dict(),
+        "codeSignals": [s.to_dict() for s in signals],
+        "manifestChangedInPr": manifest_changed_in_pr,
+        "minConfidence": min_confidence,
+    }
+    url = f"{base_url.rstrip('/')}/api/manifest/intelligence/audit"
+    with httpx.Client(timeout=timeout) as client:
+        resp = client.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            json=api_body,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+
+    rows = data.get("findings") or []
+    findings: list[AuditFinding] = []
+    if isinstance(rows, list):
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            ev_rows = row.get("evidence") or []
+            evidence: list[Evidence] = []
+            if isinstance(ev_rows, list):
+                for ev in ev_rows:
+                    if isinstance(ev, dict):
+                        evidence.append(
+                            Evidence(
+                                file=str(ev.get("file") or ""),
+                                line=int(ev.get("line") or 0),
+                                snippet=str(ev.get("snippet") or "")[:160],
+                            )
+                        )
+            findings.append(
+                AuditFinding(
+                    code=row.get("code") or "MANIFEST_STALE",  # type: ignore[arg-type]
+                    severity=row.get("severity") or "medium",  # type: ignore[arg-type]
+                    confidence=float(row.get("confidence") or 0.7),
+                    title=str(row.get("title") or "Drift detectado"),
+                    detail=str(row.get("detail") or row.get("title") or ""),
+                    manifest_section=str(row.get("manifestSection") or row.get("manifest_section") or "data_stores"),
+                    suggested_catalog_id=str(
+                        row.get("suggestedCatalogId") or row.get("suggested_catalog_id") or "unknown"
+                    ),
+                    evidence=evidence,
+                )
+            )
+    clean = bool(data.get("clean", len(findings) == 0))
+    judge_model = data.get("judgeModel")
+    return findings, clean, judge_model if isinstance(judge_model, str) else "arc-one-platform"

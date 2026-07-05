@@ -27,12 +27,21 @@ mi-agente/
 
 | Secret | Uso |
 |--------|-----|
-| `ARC_ONE_API_BASE_URL` | URL de la API Arc One |
-| `ARC_ONE_BEARER_TOKEN` | Token `arc1_…` del workspace |
+| `ARC_ONE_API_BASE_URL` | URL de la API Arc One (judge hosted + gate/register) |
+| `ARC_ONE_BEARER_TOKEN` | Token `arc1_…` del workspace (judge hosted + gate/register) |
 | `ARC_ONE_AGENT_ID` | Opcional si `agent_id` está en el YAML |
 | `ARC_ONE_REGISTRATION_OWNER_USER_ID` | User id interno para owners |
 | `AWS_SERVICE_URL` (o equivalente) | Base URL para resolver `connector` en CI |
-| `ARC_ONE_LLM_API_KEY` | Opcional — LLM judge en `audit` (sin key → static-only) |
+| `ARC_ONE_LLM_API_KEY` | Opcional — LLM judge **local** en audit (solo lab/dev) |
+
+El judge hosted corre en Arc One con `ANTHROPIC_API_KEY` del servidor — el repo agente no necesita LLM key.
+
+```bash
+# Enterprise (sin LLM key en repo agente)
+export ARC_ONE_API_BASE_URL=https://...
+export ARC_ONE_BEARER_TOKEN=arc1_...
+arc-one-manifest audit arc-one.agent.yaml --scan-all --warn-only
+```
 
 ---
 
@@ -47,7 +56,7 @@ jobs:
     with:
       tools_ref: v1.2.0
       enable_audit: true   # comentario Manifest Drift Guard en el PR
-    secrets: inherit       # incluir ARC_ONE_LLM_API_KEY si querés LLM judge
+    secrets: inherit       # ARC_ONE_BEARER_TOKEN → judge hosted (sin LLM key en repo)
 ```
 
 Repo de pruebas: `arc-one-demo-audit-lab` (no usar en demos de cliente).

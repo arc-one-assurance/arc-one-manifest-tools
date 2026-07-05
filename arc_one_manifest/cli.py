@@ -75,7 +75,11 @@ def _cmd_suggest_bump(args: argparse.Namespace) -> None:
 
 def _cmd_audit(args: argparse.Namespace) -> None:
     static_only = args.static_only
-    if not static_only and not os.environ.get("ARC_ONE_LLM_API_KEY", "").strip():
+    has_platform = bool(
+        os.environ.get("ARC_ONE_API_BASE_URL", "").strip()
+        and os.environ.get("ARC_ONE_BEARER_TOKEN", "").strip()
+    )
+    if not static_only and not has_platform and not os.environ.get("ARC_ONE_LLM_API_KEY", "").strip():
         static_only = True
 
     try:
