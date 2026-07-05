@@ -12,29 +12,12 @@ from typing import Any, Dict, Optional, Tuple
 import httpx
 import yaml
 
+from arc_one_manifest.material_paths import MATERIAL_PATHS
+
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
-# Fields that trigger at least MINOR when changed (material manifest changes).
-_MATERIAL_PATHS = frozenset(
-    {
-        "system_prompt",
-        "declared_capabilities",
-        "required_guardrails",
-        "agent_skills",
-        "agent_model",
-        "autonomy_level",
-        "integration_endpoints",
-        "data_stores",
-        "secrets_required",
-        "knowledge_bases",
-        "agent_dependencies",
-        "mcp_servers",
-        "purpose",
-        "regulated_context",
-        "network_exposure",
-        "connector",
-    }
-)
+# Back-compat alias — gate y manifest intelligence comparten el mismo set.
+_MATERIAL_PATHS = MATERIAL_PATHS
 
 
 def _load_yaml(path: str) -> Dict[str, Any]:
