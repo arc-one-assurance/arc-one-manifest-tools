@@ -8,6 +8,7 @@ import sys
 
 from arc_one_manifest.gate import validate_gate, write_bump
 from arc_one_manifest.intelligence.audit import report_to_json, report_to_markdown, run_audit
+from arc_one_manifest.intelligence.reporter import report_to_pr_comment
 from arc_one_manifest.loader import load_manifest
 from arc_one_manifest.register import apply
 from arc_one_manifest.validation import ManifestValidationError, validate_madre_manifest
@@ -66,12 +67,16 @@ def _cmd_suggest_bump(args: argparse.Namespace) -> None:
 
 
 def _cmd_audit(args: argparse.Namespace) -> None:
+    static_only = args.static_only
+    if not static_only and not os.environ.get("ARC_ONE_LLM_API_KEY", "").strip():
+        static_only = True
+
     try:
         report = run_audit(
             args.manifest,
             repo=args.repo,
             base_ref=args.base,
-            static_only=args.static_only,
+            static_only=static_only,
             min_confidence=args.min_confidence,
             scan_all=args.scan_all,
         )
@@ -81,6 +86,8 @@ def _cmd_audit(args: argparse.Namespace) -> None:
 
     if args.format == "json":
         payload = report_to_json(report)
+    elif args.format == "pr-comment":
+        payload = report_to_pr_comment(report)
     else:
         payload = report_to_markdown(report)
 
@@ -145,9 +152,14 @@ def main(argv: list[str] | None = None) -> None:
     p_audit.add_argument("--repo", default=".", help="Repo root to scan")
     p_audit.add_argument("--base", default="origin/main", help="Git base ref for diff")
     p_audit.add_argument("--scan-all", action="store_true", help="Scan all scoped files, not just git diff")
-    p_audit.add_argument("--static-only", action="store_true", default=True)
+    p_audit.add_argument(
+        "--static-only",
+        action="store_true",
+        default=False,
+        help="Skip LLM judge (default: use judge when ARC_ONE_LLM_API_KEY is set)",
+    )
     p_audit.add_argument("--min-confidence", type=float, default=0.85)
-    p_audit.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_audit.add_argument("--format", choices=("json", "markdown", "pr-comment"), default="markdown")
     p_audit.add_argument("--output", "-o", default="")
     p_audit.add_argument(
         "--warn-only",

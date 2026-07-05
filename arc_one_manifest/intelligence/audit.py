@@ -15,6 +15,7 @@ from arc_one_manifest.intelligence.git_diff import (
     list_repo_files,
     read_file_lines,
 )
+from arc_one_manifest.intelligence.judge import run_judge
 from arc_one_manifest.intelligence.manifest_summary import declared_ids_for_section, summarize_manifest
 from arc_one_manifest.intelligence.models import AuditFinding, AuditReport, CodeSignal, ManifestSummary
 
@@ -23,8 +24,23 @@ def _normalize_id(value: str) -> str:
     return value.strip().lower().replace("_", "-")
 
 
+def _declared_ids_for_signal(signal: CodeSignal, summary: ManifestSummary) -> set[str]:
+    """IDs del manifest que satisfacen la señal (incluye secciones relacionadas)."""
+    primary = declared_ids_for_section(summary, signal.manifest_section)
+    if signal.kind == "data_store":
+        primary = primary | declared_ids_for_section(summary, "integration_endpoints")
+    elif signal.kind == "integration_endpoint":
+        primary = primary | declared_ids_for_section(summary, "data_stores")
+    return primary
+
+
 def _is_declared(signal: CodeSignal, summary: ManifestSummary) -> bool:
-    declared = declared_ids_for_section(summary, signal.manifest_section)
+    if signal.kind == "secret" and signal.inferred_id == "llm-api-key":
+        model = (summary.agent_model or "").lower()
+        if model and any(p in model for p in ("anthropic", "openai", "azure", "google", "gemini")):
+            return True
+
+    declared = _declared_ids_for_signal(signal, summary)
     inferred = _normalize_id(signal.inferred_id)
     if not declared:
         return False
@@ -106,6 +122,7 @@ def run_audit(
     scan_all: bool = False,
     include: tuple[str, ...] = DEFAULT_INCLUDE,
     exclude: tuple[str, ...] = DEFAULT_EXCLUDE,
+    judge_client: object | None = None,
 ) -> AuditReport:
     repo_path = Path(repo).resolve()
     manifest_file = Path(manifest_path).resolve()
@@ -131,6 +148,23 @@ def run_audit(
         signals.extend(extract_all_signals(rel, lines))
 
     findings = static_findings(signals, summary, min_confidence=min_confidence)
+    judge_model: str | None = None
+    clean = len(findings) == 0
+
+    if not static_only and signals:
+        try:
+            judge_min = min(min_confidence, 0.7)
+            findings, clean, judge_model = run_judge(
+                manifest_path=str(manifest_file),
+                summary=summary,
+                signals=signals,
+                client=judge_client,  # type: ignore[arg-type]
+                min_confidence=judge_min,
+            )
+        except ValueError:
+            findings = static_findings(signals, summary, min_confidence=min_confidence)
+            clean = len(findings) == 0
+            static_only = True
 
     return AuditReport(
         manifest_path=str(manifest_file),
@@ -139,7 +173,8 @@ def run_audit(
         manifest_summary=summary,
         code_signals=signals,
         findings=findings,
-        clean=len(findings) == 0,
+        clean=clean,
+        judge_model=judge_model,
     )
 
 

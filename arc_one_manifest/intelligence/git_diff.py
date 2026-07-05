@@ -47,8 +47,15 @@ def _matches(path: str, patterns: tuple[str, ...]) -> bool:
     return any(fnmatch.fnmatch(normalized, pat) for pat in patterns)
 
 
+def _normalize_rel_path(path: str) -> str:
+    normalized = path.replace("\\", "/")
+    while normalized.startswith("./"):
+        normalized = normalized[2:]
+    return normalized
+
+
 def in_scope(path: str, include: tuple[str, ...], exclude: tuple[str, ...]) -> bool:
-    normalized = path.replace("\\", "/").lstrip("./")
+    normalized = _normalize_rel_path(path)
     if not _matches(normalized, include):
         return False
     return not _matches(normalized, exclude)
