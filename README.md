@@ -32,6 +32,7 @@ export ARC_ONE_BEARER_TOKEN=arc1_...
 
 arc-one-manifest validate arc-one.agent.yaml
 arc-one-manifest audit arc-one.agent.yaml --scan-all --warn-only
+arc-one-manifest generate --repo . --dry-run
 arc-one-manifest gate arc-one.agent.yaml
 arc-one-manifest register arc-one.agent.yaml --dry-run
 ```
