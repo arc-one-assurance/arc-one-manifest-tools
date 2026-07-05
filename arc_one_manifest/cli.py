@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> None:
     p_gen.add_argument("--output", default="arc-one.agent.yaml")
     p_gen.add_argument("--report", default="manifest-generation-report.json")
     p_gen.add_argument("--profile", default="auto", help="Stack profile (auto, generic, python-aws-ecs)")
-    p_gen.add_argument("--skip-llm", action="store_true", default=True)
+    p_gen.add_argument("--skip-llm", action="store_true", default=False, help="Skip LLM narrative synthesizer")
     p_gen.add_argument("--dry-run", action="store_true", help="Print to stdout, do not write files")
     p_gen.set_defaults(func=_cmd_generate)
 

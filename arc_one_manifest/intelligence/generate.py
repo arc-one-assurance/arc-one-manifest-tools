@@ -12,6 +12,7 @@ import yaml
 from arc_one_manifest.intelligence.catalog import normalize_catalog_id, resolve_signal_catalog_id
 from arc_one_manifest.intelligence.extractors import extract_all_signals
 from arc_one_manifest.intelligence.generate_models import FieldReport, GenerationReport
+from arc_one_manifest.intelligence.generate_synthesizer import synthesize_narrative_fields
 from arc_one_manifest.intelligence.git_diff import DEFAULT_EXCLUDE, DEFAULT_INCLUDE, list_repo_files, read_file_lines
 from arc_one_manifest.intelligence.models import CodeSignal
 from arc_one_manifest.intelligence.profiles import PROFILE_DEFAULTS, detect_profile
@@ -210,7 +211,7 @@ def run_generate(
     repo: str | Path,
     *,
     profile: str = "auto",
-    skip_llm: bool = True,
+    skip_llm: bool = False,
 ) -> tuple[dict[str, Any], GenerationReport]:
     repo_path = Path(repo).resolve()
     if not repo_path.is_dir():
@@ -219,6 +220,18 @@ def run_generate(
     detected = detect_profile(repo_path, profile)
     signals = _collect_signals(repo_path)
     manifest, fields, confidence = _build_manifest(repo_path, detected, signals)
+
+    if not skip_llm:
+        signal_labels = [f"{s.kind}:{s.inferred_id}" for s in signals[:30]]
+        patches, synth_fields = synthesize_narrative_fields(
+            repo_path, profile=detected, manifest=manifest, signals_summary=signal_labels
+        )
+        manifest.update({k: v for k, v in patches.items() if k != "system_prompt"})
+        if "system_prompt" in patches:
+            manifest["system_prompt"] = patches["system_prompt"]
+        fields.update(synth_fields)
+        if synth_fields:
+            confidence = min(0.95, confidence + 0.1)
 
     validation: dict[str, Any] = {"ok": False, "errors": []}
     try:
