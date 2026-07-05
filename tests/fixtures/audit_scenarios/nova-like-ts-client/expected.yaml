@@ -1,0 +1,6 @@
+clean: true
+mustNotFind:
+  - manifestSection: secrets_required
+    suggestedCatalogId: runtime-secret
+  - manifestSection: mcp_servers
+    suggestedCatalogId: core-banking-mcp

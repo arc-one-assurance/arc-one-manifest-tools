@@ -1,0 +1,7 @@
+clean: false
+mustFind:
+  - manifestSection: data_stores
+    suggestedCatalogId: redis
+mustNotFind:
+  - manifestSection: data_stores
+    suggestedCatalogId: postgresql

@@ -1,0 +1,8 @@
+clean: true
+mustNotFind:
+  - manifestSection: data_stores
+    suggestedCatalogId: postgresql
+  - manifestSection: data_stores
+    suggestedCatalogId: pinecone
+  - manifestSection: mcp_servers
+    suggestedCatalogId: core-banking-mcp

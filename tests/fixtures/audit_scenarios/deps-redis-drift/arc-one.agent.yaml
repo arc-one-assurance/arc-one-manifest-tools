@@ -1,0 +1,9 @@
+manifest_version: "1.2"
+name: Deps Redis Drift
+agent_version: "1.0.0"
+agent_model: anthropic/claude-sonnet-4-7
+data_stores:
+  - asset_id: postgresql
+    relation_type: [READ]
+integration_endpoints: []
+mcp_servers: []

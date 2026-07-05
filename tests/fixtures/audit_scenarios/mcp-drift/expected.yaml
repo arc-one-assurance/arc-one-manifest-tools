@@ -1,0 +1,5 @@
+clean: false
+mustFind:
+  - manifestSection: mcp_servers
+    suggestedCatalogId: core-banking-test-2
+maxFindings: 1

@@ -32,6 +32,32 @@ mi-agente/
 | `ARC_ONE_AGENT_ID` | Opcional si `agent_id` está en el YAML |
 | `ARC_ONE_REGISTRATION_OWNER_USER_ID` | User id interno para owners |
 | `AWS_SERVICE_URL` (o equivalente) | Base URL para resolver `connector` en CI |
+| `ARC_ONE_LLM_API_KEY` | Opcional — LLM judge en `audit` (sin key → static-only) |
+
+---
+
+## Manifest Intelligence — audit en CI
+
+Opt-in con `enable_audit: true` en el workflow reusable:
+
+```yaml
+jobs:
+  preview:
+    uses: arc-one-assurance/arc-one-manifest-tools/.github/workflows/manifest-pr-preview.yml@v1.2.0
+    with:
+      tools_ref: v1.2.0
+      enable_audit: true   # comentario Manifest Drift Guard en el PR
+    secrets: inherit       # incluir ARC_ONE_LLM_API_KEY si querés LLM judge
+```
+
+Repo de pruebas: `arc-one-demo-audit-lab` (no usar en demos de cliente).
+
+Local:
+
+```bash
+arc-one-manifest audit arc-one.agent.yaml --scan-all --static-only --warn-only
+arc-one-manifest audit arc-one.agent.yaml --format pr-comment -o audit-comment.md
+```
 
 ---
 

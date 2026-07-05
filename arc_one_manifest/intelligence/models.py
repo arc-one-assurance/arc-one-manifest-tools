@@ -100,9 +100,10 @@ class AuditReport:
     code_signals: list[CodeSignal]
     findings: list[AuditFinding]
     clean: bool
+    judge_model: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
-        return {
+        out = {
             "manifestPath": self.manifest_path,
             "baseRef": self.base_ref,
             "staticOnly": self.static_only,
@@ -111,3 +112,6 @@ class AuditReport:
             "findings": [f.to_dict() for f in self.findings],
             "clean": self.clean,
         }
+        if self.judge_model:
+            out["judgeModel"] = self.judge_model
+        return out

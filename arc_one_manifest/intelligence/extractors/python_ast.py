@@ -97,6 +97,19 @@ def extract_python_ast_signals(path: str, lines: list[str]) -> list[CodeSignal]:
                 snippet=line,
             )
 
+        if re.search(r"\bredis\.(Redis|StrictRedis|from_url)\b", line):
+            _append(
+                signals,
+                seen,
+                kind="data_store",
+                inferred_id="redis",
+                confidence=0.9,
+                section="data_stores",
+                path=path,
+                line_no=idx,
+                snippet=line,
+            )
+
         if "pinecone" in line.lower() and ("Index" in line or "Pinecone" in line):
             _append(
                 signals,

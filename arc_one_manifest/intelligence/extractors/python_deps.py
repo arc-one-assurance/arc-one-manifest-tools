@@ -11,7 +11,7 @@ _PKG_HINTS: dict[str, tuple[str, str, float]] = {
     "openai": ("model_hint", "openai", 0.78),
     "boto3": ("data_store", "aws-sdk", 0.65),
     "pinecone": ("data_store", "pinecone", 0.82),
-    "redis": ("data_store", "redis", 0.82),
+    "redis": ("data_store", "redis", 0.86),
     "psycopg": ("data_store", "postgresql", 0.82),
     "psycopg2": ("data_store", "postgresql", 0.82),
     "sqlalchemy": ("data_store", "postgresql", 0.6),

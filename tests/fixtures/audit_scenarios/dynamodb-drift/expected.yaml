@@ -1,0 +1,7 @@
+clean: false
+mustFind:
+  - manifestSection: data_stores
+    suggestedCatalogId: dynamodb
+mustNotFind:
+  - manifestSection: data_stores
+    suggestedCatalogId: postgresql

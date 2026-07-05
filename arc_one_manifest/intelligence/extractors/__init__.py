@@ -5,6 +5,7 @@ from __future__ import annotations
 from arc_one_manifest.intelligence.extractors.env_example import extract_env_example_signals
 from arc_one_manifest.intelligence.extractors.python_ast import extract_python_ast_signals
 from arc_one_manifest.intelligence.extractors.python_deps import extract_python_deps_signals
+from arc_one_manifest.intelligence.extractors.typescript_env import extract_typescript_signals
 from arc_one_manifest.intelligence.models import CodeSignal
 
 __all__ = [
@@ -20,8 +21,11 @@ def extract_all_signals(path_str: str, lines: list[str]) -> list[CodeSignal]:
     lower = rel.lower()
     signals: list[CodeSignal] = []
 
-    if lower.endswith((".py",)) or "/src/" in lower or lower.startswith("src/"):
+    if lower.endswith(".py"):
         signals.extend(extract_python_ast_signals(rel, lines))
+
+    if lower.endswith((".ts", ".tsx", ".js", ".jsx")):
+        signals.extend(extract_typescript_signals(rel, lines))
 
     if lower.endswith((".txt",)) and "requirements" in lower:
         signals.extend(extract_python_deps_signals(rel, lines))

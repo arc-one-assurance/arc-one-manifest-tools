@@ -1,0 +1,9 @@
+clean: false
+mustFind:
+  - manifestSection: data_stores
+    suggestedCatalogId: dynamodb
+  - manifestSection: mcp_servers
+    suggestedCatalogId: payments-mcp
+  - manifestSection: data_stores
+    suggestedCatalogId: redis
+maxFindings: 3
