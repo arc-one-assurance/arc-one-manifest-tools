@@ -5,9 +5,16 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+from pathlib import Path
 
 from arc_one_manifest.gate import validate_gate, write_bump
 from arc_one_manifest.intelligence.audit import report_to_json, report_to_markdown, run_audit
+from arc_one_manifest.intelligence.generate import (
+    report_to_json as generation_report_to_json,
+    run_generate,
+    write_generate_outputs,
+)
+from arc_one_manifest.intelligence.generate import _manifest_yaml_with_header
 from arc_one_manifest.intelligence.reporter import report_to_pr_comment
 from arc_one_manifest.loader import load_manifest
 from arc_one_manifest.register import apply
@@ -113,6 +120,30 @@ def _cmd_audit(args: argparse.Namespace) -> None:
         raise SystemExit(1)
 
 
+def _cmd_generate(args: argparse.Namespace) -> None:
+    try:
+        manifest, report = run_generate(args.repo, profile=args.profile, skip_llm=args.skip_llm)
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    yaml_text = _manifest_yaml_with_header(manifest, confidence=report.confidence, profile=report.profile)
+
+    if args.dry_run:
+        print(yaml_text)
+        print("---")
+        print(generation_report_to_json(report))
+        return
+
+    output = Path(args.output)
+    report_path = Path(args.report)
+    write_generate_outputs(manifest, report, output=output, report_path=report_path)
+    print(f"Generated {output} (confidence {report.confidence:.0%}, profile {report.profile})")
+    print(f"Report: {report_path}")
+    if not report.validation.get("ok"):
+        print("Validation: pending TODO fields — complete before register.", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
         prog="arc-one-manifest",
@@ -175,6 +206,15 @@ def main(argv: list[str] | None = None) -> None:
     )
     p_audit.add_argument("--no-warn-only", dest="warn_only", action="store_false")
     p_audit.set_defaults(func=_cmd_audit)
+
+    p_gen = sub.add_parser("generate", help="Bootstrap arc-one.agent.yaml from repo scan")
+    p_gen.add_argument("--repo", default=".", help="Repo root to scan")
+    p_gen.add_argument("--output", default="arc-one.agent.yaml")
+    p_gen.add_argument("--report", default="manifest-generation-report.json")
+    p_gen.add_argument("--profile", default="auto", help="Stack profile (auto, generic, python-aws-ecs)")
+    p_gen.add_argument("--skip-llm", action="store_true", default=True)
+    p_gen.add_argument("--dry-run", action="store_true", help="Print to stdout, do not write files")
+    p_gen.set_defaults(func=_cmd_generate)
 
     args = ap.parse_args(argv)
     args.func(args)
