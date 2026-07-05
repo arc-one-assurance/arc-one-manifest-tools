@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Manifest registration — MADRE v1.1 YAML → Arc One registro-completo API.
+Manifest registration — MADRE v1.1/v1.2 YAML → Arc One registro-completo API.
 
 Kept in sync with apps/api/arc_one_api/cli/agent_manifest.py (sandbox).
 """
@@ -310,7 +310,7 @@ def _v2_manifest_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """Map MADRE v1.1 YAML (export from wizard) → RegistroManifestV2Body JSON."""
+    """Map MADRE v1.1/v1.2 YAML (export from wizard) → RegistroManifestV2Body JSON."""
     sp = manifest.get("system_prompt") or {}
     caps = manifest.get("declared_capabilities") or {}
 
@@ -400,7 +400,23 @@ def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
                 }
                 for s in (manifest.get("secrets_required") or [])
             ],
-            "knowledgeBases": manifest.get("knowledge_bases") or [],
+            "knowledgeBases": manifest.get("knowledge_bases") or manifest.get("knowledgeBases") or [],
+            "agentDependencies": [
+                {
+                    "agentId": d.get("agent_id") or d.get("agentId"),
+                    "relationType": d.get("relation_type") or d.get("relationType") or [],
+                    **({"notes": d.get("notes")} if d.get("notes") else {}),
+                }
+                for d in (manifest.get("agent_dependencies") or manifest.get("agentDependencies") or [])
+            ],
+            "mcpServers": [
+                {
+                    "mcpId": m.get("mcp_id") or m.get("mcpId") or m.get("identifier") or m.get("id"),
+                    "backedByAssets": m.get("backed_by_assets") or m.get("backedByAssets") or [],
+                    **({"notes": m.get("notes")} if m.get("notes") else {}),
+                }
+                for m in (manifest.get("mcp_servers") or manifest.get("mcpServers") or [])
+            ],
         },
     }
     if conectividad and conectividad.get("endpointUrl"):
