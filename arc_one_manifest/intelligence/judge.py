@@ -15,7 +15,7 @@ from arc_one_manifest.intelligence.models import AuditFinding, CodeSignal, Evide
 from arc_one_manifest.material_paths import MATERIAL_PATHS
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "audit_judge_v1.txt"
-_DEFAULT_MODEL = "claude-sonnet-4-20250514"
+_DEFAULT_MODEL = "claude-sonnet-4-6"
 _ANTHROPIC_URL = "https://api.anthropic.com/v1/messages"
 
 
