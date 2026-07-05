@@ -16,7 +16,7 @@ Toda la lógica de **validación**, **CI Gate** (drift + semver) y **registro** 
 
 | Componente | Descripción |
 |------------|-------------|
-| **CLI** `arc-one-manifest` | `validate` · `gate` · `register` |
+| **CLI** `arc-one-manifest` | `validate` · `gate` · `register` · `audit` *(v1.2)* · `generate` *(v1.3)* |
 | **Composite action** `setup@v1.0.0` | Instala el CLI en GitHub Actions |
 | **Reusable workflows** | `manifest-pr-preview.yml` · `manifest-register.yml` |
 
@@ -31,6 +31,7 @@ export ARC_ONE_API_BASE_URL=https://...
 export ARC_ONE_BEARER_TOKEN=arc1_...
 
 arc-one-manifest validate arc-one.agent.yaml
+arc-one-manifest audit arc-one.agent.yaml --scan-all --warn-only
 arc-one-manifest gate arc-one.agent.yaml
 arc-one-manifest register arc-one.agent.yaml --dry-run
 ```
@@ -68,6 +69,15 @@ jobs:
 | **Perfil por workspace** (futuro) | Arc One API | Token del workspace → schema dinámico |
 
 Detalle: [`docs/SCHEMA.md`](docs/SCHEMA.md).
+
+### Manifest Intelligence (roadmap)
+
+Capa futura que cierra el loop **código ↔ manifest**:
+
+- **`audit`** — detecta drift cuando el código cambia pero el YAML no ([diseño completo](docs/MANIFEST_INTELLIGENCE.md))
+- **`generate`** — propone un manifest desde cero leyendo el repo
+
+Estado: diseño aprobado · Fase 1 (extractores estáticos) pendiente de implementación.
 
 ---
 

@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Arc One Manifest CLI — validate · gate · register."""
+"""Arc One Manifest CLI — validate · gate · register · audit."""
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
 
 from arc_one_manifest.gate import validate_gate, write_bump
+from arc_one_manifest.intelligence.audit import report_to_json, report_to_markdown, run_audit
 from arc_one_manifest.loader import load_manifest
 from arc_one_manifest.register import apply
 from arc_one_manifest.validation import ManifestValidationError, validate_madre_manifest
@@ -65,6 +65,47 @@ def _cmd_suggest_bump(args: argparse.Namespace) -> None:
     )
 
 
+def _cmd_audit(args: argparse.Namespace) -> None:
+    try:
+        report = run_audit(
+            args.manifest,
+            repo=args.repo,
+            base_ref=args.base,
+            static_only=args.static_only,
+            min_confidence=args.min_confidence,
+            scan_all=args.scan_all,
+        )
+    except ValueError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2) from exc
+
+    if args.format == "json":
+        payload = report_to_json(report)
+    else:
+        payload = report_to_markdown(report)
+
+    if args.output:
+        with open(args.output, "w", encoding="utf-8") as fh:
+            fh.write(payload)
+            if not payload.endswith("\n"):
+                fh.write("\n")
+    else:
+        print(payload)
+
+    if report.clean:
+        return
+
+    if args.warn_only:
+        return
+
+    codes = {f.code for f in report.findings}
+    fail_on = set(args.fail_on or [])
+    if fail_on and codes.intersection(fail_on):
+        raise SystemExit(1)
+    if not fail_on:
+        raise SystemExit(1)
+
+
 def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(
         prog="arc-one-manifest",
@@ -95,6 +136,33 @@ def main(argv: list[str] | None = None) -> None:
     p_sug.add_argument("manifest", nargs="?", default="arc-one.agent.yaml")
     p_sug.add_argument("--agent-id", default=os.environ.get("ARC_ONE_AGENT_ID", ""))
     p_sug.set_defaults(func=_cmd_suggest_bump)
+
+    p_audit = sub.add_parser(
+        "audit",
+        help="Detect code ↔ manifest drift (Manifest Intelligence · static layer)",
+    )
+    p_audit.add_argument("manifest", nargs="?", default="arc-one.agent.yaml")
+    p_audit.add_argument("--repo", default=".", help="Repo root to scan")
+    p_audit.add_argument("--base", default="origin/main", help="Git base ref for diff")
+    p_audit.add_argument("--scan-all", action="store_true", help="Scan all scoped files, not just git diff")
+    p_audit.add_argument("--static-only", action="store_true", default=True)
+    p_audit.add_argument("--min-confidence", type=float, default=0.85)
+    p_audit.add_argument("--format", choices=("json", "markdown"), default="markdown")
+    p_audit.add_argument("--output", "-o", default="")
+    p_audit.add_argument(
+        "--warn-only",
+        action="store_true",
+        default=True,
+        help="Exit 0 even when findings exist (default)",
+    )
+    p_audit.add_argument(
+        "--fail-on",
+        action="append",
+        default=[],
+        help="Finding codes that fail CI (e.g. MANIFEST_STALE). Implies --no-warn-only when matched.",
+    )
+    p_audit.add_argument("--no-warn-only", dest="warn_only", action="store_false")
+    p_audit.set_defaults(func=_cmd_audit)
 
     args = ap.parse_args(argv)
     args.func(args)

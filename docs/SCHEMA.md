@@ -19,7 +19,12 @@ arc-one.agent.yaml
        │
        ▼
 ┌──────────────────────────┐
-│ arc-one-manifest validate │  ← reglas MADRE v1.1 (este repo, tag v1.x)
+│ arc-one-manifest audit    │  ← [v1.2] código ↔ manifest (drift guard)
+└──────────────────────────┘
+       │
+       ▼
+┌──────────────────────────┐
+│ arc-one-manifest validate │  ← reglas MADRE v1.1/v1.2 (este repo, tag v1.x)
 └──────────────────────────┘
        │
        ▼
@@ -32,6 +37,8 @@ arc-one.agent.yaml
 │ Arc One API               │  ← Pydantic RegistroManifestV2Body (sandbox)
 └──────────────────────────┘
 ```
+
+Ver diseño de la capa `audit` / `generate`: [`MANIFEST_INTELLIGENCE.md`](MANIFEST_INTELLIGENCE.md).
 
 ---
 
