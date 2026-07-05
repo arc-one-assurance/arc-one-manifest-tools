@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
+import httpx
 import yaml
 
 from arc_one_manifest.intelligence.extractors import extract_all_signals
@@ -161,10 +163,15 @@ def run_audit(
                 client=judge_client,  # type: ignore[arg-type]
                 min_confidence=judge_min,
             )
-        except ValueError:
+        except (ValueError, httpx.HTTPError) as exc:
+            print(
+                f"WARN: LLM judge unavailable ({exc}); falling back to static-only.",
+                file=sys.stderr,
+            )
             findings = static_findings(signals, summary, min_confidence=min_confidence)
             clean = len(findings) == 0
             static_only = True
+            judge_model = None
 
     return AuditReport(
         manifest_path=str(manifest_file),
