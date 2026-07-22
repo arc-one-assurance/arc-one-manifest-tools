@@ -131,7 +131,14 @@ def _cmd_generate(args: argparse.Namespace) -> None:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
 
-    yaml_text = _manifest_yaml_with_header(manifest, confidence=report.confidence, profile=report.profile)
+    # Con `infra_account`: si no, el `--dry-run` muestra el placeholder y el archivo que
+    # se escribe trae la cuenta detectada — un preview que no es el output.
+    yaml_text = _manifest_yaml_with_header(
+        manifest,
+        confidence=report.confidence,
+        profile=report.profile,
+        infra_account=report.infra_account_suggestion,
+    )
 
     if args.dry_run:
         print(yaml_text)

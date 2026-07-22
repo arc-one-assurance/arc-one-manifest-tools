@@ -330,3 +330,83 @@ def test_el_payload_del_registro_manda_la_forma_canonica():
 def test_sin_bloque_el_payload_es_none():
     """Omitir ≠ mandar null: el export tampoco lo emite, y el hash tiene que cerrar."""
     assert bindings_to_payload(_yaml("name: nova\n")) is None
+
+
+# ---------------------------------------------------------------------------------
+# La cuenta dedicada (`scope: {all: true}`) — WS175
+# ---------------------------------------------------------------------------------
+
+_CUENTA_DEDICADA = """
+name: nova
+agent_version: 1.0.0
+manifest_version: "1.3"
+purpose: |
+  Un agente de prueba.
+infra_binding:
+  - account: acme-nova-prod
+    scope:
+      all: true
+"""
+
+
+def test_cuenta_dedicada_no_marca_drift_falso():
+    """El modo dedicado tiene que hashear igual de los dos lados, como el recorte.
+
+    Sin este test, tocar `_infra_binding_for_export` del platform o `normalized_bindings`
+    del CLI podía romper SÓLO el modo nuevo y dejar el CI del cliente bloqueado sin
+    converger, que es el bug que este archivo entero existe para prevenir.
+    """
+    repo = _yaml(_CUENTA_DEDICADA)
+    # El fixture es mínimo (falla por otros campos): sólo importa que el bloque pase.
+    assert [e for e in _errores(repo) if e.startswith("infra_binding")] == []
+    assert _same_hash(repo, _as_registered(repo))
+
+
+def test_la_forma_canonica_de_la_cuenta_dedicada_es_solo_all():
+    """`{all: true}` y nada más: ni `resource_prefixes: []` ni `regions: []` de relleno.
+
+    Si el normalizador emitiera las claves vacías, el hash del repo dejaría de coincidir
+    con el del export (que las omite).
+    """
+    canon = canonical_bindings(_yaml(_CUENTA_DEDICADA))
+    assert canon == [{"account": "acme-nova-prod", "scope": {"all": True}}]
+
+
+def test_all_con_recorte_se_canoniza_defensivamente_igual_de_los_dos_lados():
+    """La validación lo rechaza, pero el hash no puede depender de que alguien la corra.
+
+    Un cliente que saltee `validate` y vaya directo al `gate` no tiene que comerse un
+    drift falso: los dos lados colapsan a `{"all": true}`.
+    """
+    repo = _yaml(
+        """
+name: nova
+agent_version: 1.0.0
+infra_binding:
+  - account: acme-nova-prod
+    scope:
+      all: true
+      resource_prefixes: [nova-]
+"""
+    )
+    assert any("no se combina" in e for e in _errores(repo)), "la validación debe rechazarlo"
+    assert _same_hash(repo, _as_registered(repo))
+    assert canonical_bindings(repo) == [{"account": "acme-nova-prod", "scope": {"all": True}}]
+
+
+def test_pasar_de_recorte_a_cuenta_dedicada_sugiere_patch():
+    """Misma cuenta, otro alcance → `patch` (la regla de `gate.py` para el scope).
+
+    Se fija a propósito: amplía la superficie gobernada, así que conviene que sea una
+    decisión escrita y no un efecto colateral de la regla de `account`.
+    """
+    antes = _con_bindings(_UNA_CUENTA)
+    despues = _con_bindings(
+        """
+infra_binding:
+  - account: acme-prod
+    scope:
+      all: true
+"""
+    )
+    assert _suggest_bump_level(despues, antes) == "patch"

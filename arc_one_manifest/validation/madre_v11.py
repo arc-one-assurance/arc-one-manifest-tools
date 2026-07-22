@@ -500,7 +500,8 @@ def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_bi
                 errors,
                 f"{path}[{idx}].scope",
                 "campo obligatorio faltante — declará qué recursos de la cuenta son de este "
-                "agente (`resource_prefixes` y/o `regions`)",
+                "agente (`all: true` si la cuenta es dedicada, o `resource_prefixes` y/o "
+                "`regions`)",
             )
             continue
         if not isinstance(scope, dict):

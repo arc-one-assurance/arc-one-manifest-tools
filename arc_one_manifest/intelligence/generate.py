@@ -204,10 +204,16 @@ _ACCOUNT_ENV_KEYS = (
     "AWS_ACCOUNT_ID",
 )
 # Valores que son el placeholder del ejemplo, no la cuenta real del cliente.
+# ⚠️ No usar comodines anchos tipo `.*-project`: terminar en `-project` es normalísimo en
+# un projectId real de GCP, y descartarlo degrada al placeholder una cuenta legítima.
 _PLACEHOLDER_RE = re.compile(
-    r"^(|x+|your[-_].*|my[-_].*|<.*>|\$\{.*\}|change[-_]?me|todo|tbd|example.*|.*-project|123456789012)$",
+    r"^(|x+|your[-_].*|my[-_].*|<.*>|\$\{.*\}|change[-_]?me|todo|tbd|example.*"
+    r"|(test|demo|sample|the)[-_]project([-_]id)?|project([-_]id)?"
+    r"|123456789012|111122223333)$",
     re.IGNORECASE,
 )
+# Un valor que no puede ser una cuenta: expresión de código, interpolación, espacios.
+_NOT_AN_ACCOUNT_RE = re.compile(r"[()\s$\"'{}]")
 
 
 def _suggest_account(repo: Path) -> str | None:
@@ -219,8 +225,10 @@ def _suggest_account(repo: Path) -> str | None:
     `sin_conexion` sobre una cuenta que nadie declaró.
     """
     for file_path in list_repo_files(repo, DEFAULT_INCLUDE, DEFAULT_EXCLUDE):
-        rel = file_path.relative_to(repo).as_posix().lower()
-        if "env" not in rel:
+        # Sólo archivos de entorno de verdad. Con `"env" in ruta` entraban archivos de
+        # código (`config/env.py`) y la "cuenta detectada" salía siendo un pedazo de
+        # Python: `os.environ.get("GCP_PROJECT", "nova-prod")`.
+        if not file_path.name.lower().startswith(".env"):
             continue
         for raw in read_file_lines(file_path):
             line = raw.strip()
@@ -230,7 +238,12 @@ def _suggest_account(repo: Path) -> str | None:
             if key.strip().upper() not in _ACCOUNT_ENV_KEYS:
                 continue
             value = value.strip().strip("\"'")
-            if value and not _PLACEHOLDER_RE.match(value):
+            if (
+                value
+                and len(value) <= 256  # el límite de `account` en el schema
+                and not _NOT_AN_ACCOUNT_RE.search(value)
+                and not _PLACEHOLDER_RE.match(value)
+            ):
                 return value
     return None
 
@@ -243,7 +256,11 @@ def _infra_binding_stanza(account: str | None) -> str:
     Mismo copy que la plantilla que sirve el platform — se escribe una sola vez.
     """
     cuenta = f'"{account}"' if account else '"tu-cuenta"'
-    sugerido = "  # ← detectada en el repo, confirmala" if account else ""
+    sugerido = (
+        "  # ← detectada en el repo, confirmala"
+        if account
+        else "  # projectId (GCP) o accountId (AWS, entre comillas)"
+    )
     return (
         "\n"
         "# --- Infraestructura vinculada (opcional) -----------------------------------\n"
