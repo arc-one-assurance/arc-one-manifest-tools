@@ -1,0 +1,32 @@
+# Tests del CLI.
+#
+# Este repo NO tenía CI propio: los dos workflows que había son los reusables que
+# consumen los clientes. Los tests existían y sólo corrían si alguien se acordaba de
+# correrlos a mano.
+#
+# Importa más que en un repo normal: este CLI corre DENTRO del pipeline del cliente y
+# puede bloquearlo. El bug que motivó este workflow (el `account` numérico que hacía
+# fallar el gate para siempre) tenía la suite entera en verde, porque los tests armaban
+# los manifiestos como diccionarios de Python y nunca pasaban por el parser de YAML.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+      - name: Tests
+        run: python -m pytest tests/ -q

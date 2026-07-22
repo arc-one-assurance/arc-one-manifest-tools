@@ -34,6 +34,15 @@ infra_binding:                        # opcional · lista · dónde vive y qué 
 - **Efecto sobre el bump de versión** (lo que sugiere `gate`): cambiar de plataforma
   (`deployment_target`) o de `account` → **minor** (otra credencial, otra frontera de
   seguridad). Reacomodar el `scope` dentro de la misma cuenta → **patch**.
+- 🔴 **Un `account` de AWS son 12 dígitos: escribilo ENTRE COMILLAS.** Sin comillas,
+  YAML lo lee como número. El CLI lo normaliza igual que Arc One antes de comparar, así
+  que el gate no se rompe — pero el bloque se lee mejor y evita sorpresas con otras
+  herramientas que toquen el archivo.
+- **El orden de la lista no significa nada**: reordenar dos bindings no es un cambio
+  material y no dispara el gate.
+- **Sólo `account` y `scope`.** Cualquier otra clave (por ejemplo `provider`) se
+  **rechaza** en la validación, igual que un `infra_bindings` en plural: un bloque que
+  se ignora en silencio es peor que uno inválido, porque nadie se entera.
 
 ## Hoy (MADRE v1.1)
 
@@ -117,7 +126,12 @@ Centro de control permite editar **valores** exportados al manifest, no agregar/
 |----------------------------|-----------|-------------|
 | `1.1` | `v1.x` | RegistroManifestV2Body actual |
 | `1.2` | `v1.x` | RegistroManifestV2Body actual |
-| `1.3` | `v1.3.x+` | + `identidad.infraBinding` (opcional) |
+| `1.3` | `v1.4.x+` | + `identidad.infraBinding` (opcional) |
+
+> ⚠️ **`v1.3.2` NO sirve para `manifest_version: "1.3"`.** Esa versión se publicó antes
+> del bloque: ni lo valida ni lo manda al registrar. Un cliente que pinee `@v1.3.2` y
+> declare `infra_binding` tiene un CLI que ignora el bloque en silencio. El soporte
+> entra en **`v1.4.0`**.
 
 Regla para clientes: **`manifest_version` en YAML debe coincidir con la major del tools tag** (`1.1` → `v1.x`).
 

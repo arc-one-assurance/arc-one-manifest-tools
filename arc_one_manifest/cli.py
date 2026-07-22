@@ -35,7 +35,7 @@ def _cmd_validate(args: argparse.Namespace) -> None:
     name = manifest.get("name", "?")
     version = manifest.get("agent_version") or manifest.get("agentVersion") or "?"
     mv = manifest.get("manifest_version") or manifest.get("manifestVersion") or "?"
-    print(f"Manifest OK · v1.1/v1.2 · {name} · {version} (manifest {mv})")
+    print(f"Manifest OK · {name} · {version} (manifest {mv})")
 
 
 def _cmd_gate(args: argparse.Namespace) -> None:

@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from typing import Any, Dict, List, Optional
 
 import httpx
 import yaml
+
+from arc_one_manifest.infra_binding import bindings_to_payload
 
 
 def _normalize_network_exposure(raw: Any) -> str:
@@ -314,28 +317,22 @@ def _infra_binding_to_payload(manifest: Dict[str, Any]) -> Optional[List[Dict[st
 
     Coordenadas, nunca secretos: la credencial de la nube vive en la conexión del
     workspace. El provider no se declara — Arc One lo deriva de la cuenta.
-    """
-    raw = manifest.get("infra_binding")
-    if raw is None:
-        raw = manifest.get("infraBinding")
-    if not isinstance(raw, list) or not raw:
-        return None
 
-    bindings: List[Dict[str, Any]] = []
-    for item in raw:
-        if not isinstance(item, dict):
-            continue
-        scope = item.get("scope") if isinstance(item.get("scope"), dict) else {}
-        mapped_scope: Dict[str, Any] = {}
-        prefixes = scope.get("resource_prefixes") or scope.get("resourcePrefixes")
-        if prefixes:
-            mapped_scope["resourcePrefixes"] = list(prefixes)
-        if scope.get("regions"):
-            mapped_scope["regions"] = list(scope["regions"])
-        if scope.get("labels"):
-            mapped_scope["labels"] = dict(scope["labels"])
-        bindings.append({"account": item.get("account"), "scope": mapped_scope})
-    return bindings or None
+    Delega en el normalizador único (`infra_binding.py`) para mandar EXACTAMENTE la
+    misma forma que el `gate` hashea. Mandar algo distinto de lo que se compara es
+    justamente lo que dejaba el CI del cliente bloqueado sin salida.
+    """
+    return bindings_to_payload(manifest)
+
+
+def _clean_header(value: str) -> str:
+    """Un header con `\\n` adentro tumba la request entera (LocalProtocolError).
+
+    `ARC_ONE_REPO` / `ARC_ONE_RUN_REF` son los overrides para CI que no sea GitHub, o
+    sea variables que setea el cliente. Un salto de línea ahí haría que `register`
+    muera con un traceback de Python en vez de registrar.
+    """
+    return re.sub(r"[\r\n\t]+", " ", value or "").strip()[:256]
 
 
 def ci_provenance_headers() -> Dict[str, str]:
@@ -349,11 +346,11 @@ def ci_provenance_headers() -> Dict[str, str]:
     """
     out: Dict[str, str] = {}
     repo = os.environ.get("ARC_ONE_REPO") or os.environ.get("GITHUB_REPOSITORY") or ""
-    if repo.strip():
-        out["X-Arc-One-Repo"] = repo.strip()[:256]
+    if _clean_header(repo):
+        out["X-Arc-One-Repo"] = _clean_header(repo)
     run = os.environ.get("ARC_ONE_RUN_REF") or os.environ.get("GITHUB_RUN_ID") or ""
-    if run.strip():
-        out["X-Arc-One-Run"] = run.strip()[:256]
+    if _clean_header(run):
+        out["X-Arc-One-Run"] = _clean_header(run)
     return out
 
 

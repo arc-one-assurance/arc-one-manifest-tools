@@ -383,6 +383,42 @@ def _validate_str_list(errors: List[str], value: Any, path: str) -> List[str]:
     return cleaned
 
 
+_BINDING_KEYS = frozenset({"account", "scope"})
+_SCOPE_KEYS = frozenset({"resource_prefixes", "resourcePrefixes", "regions", "labels"})
+# Errores de tipeo que valen una corrección explícita en vez de "clave desconocida".
+_SCOPE_TYPOS = {
+    "resource_prefix": "resource_prefixes",
+    "prefixes": "resource_prefixes",
+    "prefix": "resource_prefixes",
+    "region": "regions",
+    "label": "labels",
+    "tags": "labels",
+}
+# Lo mismo a nivel top-level: `infra_bindings` (plural) es el error natural, y hoy pasa
+# la validación entera sin decir nada — el agente cree que declaró dónde vive y Arc One
+# sigue adivinando por heurística de nombre.
+_TOP_LEVEL_TYPOS = {
+    "infra_bindings": "infra_binding",
+    "infrabinding": "infra_binding",
+    "infra-binding": "infra_binding",
+    "infraBindings": "infra_binding",
+}
+
+
+def validate_infra_binding_typos(errors: List[str], manifest: Dict[str, Any]) -> None:
+    """Un bloque bien escrito pero mal nombrado es peor que uno inválido: no se nota."""
+    if "infra_binding" in manifest or "infraBinding" in manifest:
+        return
+    for key in manifest:
+        if str(key) in _TOP_LEVEL_TYPOS:
+            _err(
+                errors,
+                str(key),
+                f"¿quisiste decir `{_TOP_LEVEL_TYPOS[str(key)]}`? Tal como está, el bloque "
+                "se ignora entero y Arc One no sabe en qué cuenta vive este agente",
+            )
+
+
 def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_binding") -> None:
     """Valida el bloque opcional `infra_binding` (lista · capas 2+3 de conectividad).
 
@@ -406,6 +442,26 @@ def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_bi
         if not isinstance(item, dict):
             _err(errors, f"{path}[{idx}]", "debe ser un objeto con `account` y `scope`")
             continue
+
+        # Una clave que no existe se ignoraba en silencio: el cliente creía haber
+        # declarado algo y Arc One nunca lo recibía (declaración muerta · decisión 14).
+        for key in sorted(set(item) - _BINDING_KEYS):
+            _err(
+                errors,
+                f"{path}[{idx}].{key}",
+                "clave desconocida — un binding sólo lleva `account` y `scope` "
+                "(el proveedor de nube lo deduce Arc One de la cuenta; no se declara)",
+            )
+
+        if isinstance(item.get("account"), (int, float)) and not isinstance(
+            item.get("account"), bool
+        ):
+            _err(
+                errors,
+                f"{path}[{idx}].account",
+                'escribilo entre comillas ("112233445566"): sin comillas YAML lo lee como '
+                "número y deja de coincidir con lo que Arc One tiene registrado",
+            )
 
         account = str(item.get("account") or "").strip()
         if not account:
@@ -438,6 +494,17 @@ def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_bi
         if not isinstance(scope, dict):
             _err(errors, f"{path}[{idx}].scope", "debe ser un objeto YAML")
             continue
+
+        for key in sorted(set(scope) - _SCOPE_KEYS):
+            sugerencia = ""
+            if key in _SCOPE_TYPOS:
+                sugerencia = f" — ¿quisiste decir `{_SCOPE_TYPOS[key]}`?"
+            _err(
+                errors,
+                f"{path}[{idx}].scope.{key}",
+                f"clave desconocida{sugerencia}. El alcance se declara con "
+                "`resource_prefixes`, `regions` y/o `labels`",
+            )
 
         prefixes = _validate_str_list(
             errors,
@@ -563,6 +630,7 @@ def validate_madre_manifest(
         errors,
         manifest.get("infra_binding") if "infra_binding" in manifest else manifest.get("infraBinding"),
     )
+    validate_infra_binding_typos(errors, manifest)
 
     regulated = manifest.get("regulated_context") or manifest.get("regulatedContext")
     if not isinstance(regulated, list) or not regulated:
