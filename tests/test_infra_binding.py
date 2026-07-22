@@ -77,13 +77,25 @@ class InfraBindingValidationTest(unittest.TestCase):
                             "labels": {"app": "nova"},
                         },
                     },
-                    {
-                        "account": "112233445566",
-                        "scope": {"resource_prefixes": ["nova-events-"]},
-                    },
                 ]
             ),
             [],
+        )
+
+    def test_dos_cuentas_se_rechazan(self) -> None:
+        """Arc One analiza UNA nube por agente: la de su `deployment_target`.
+
+        Se valida acá, donde el manifiesto se escribe, y no sólo en el registro: si el CLI
+        diera OK y el push fallara después, el cliente descubriría el problema tarde.
+        """
+        errors = errors_for(
+            [
+                {"account": "acme-prod", "scope": {"resource_prefixes": ["nova-"]}},
+                {"account": "112233445566", "scope": {"resource_prefixes": ["nova-events-"]}},
+            ]
+        )
+        self.assertTrue(
+            any("una sola nube por agente" in e for e in errors), errors
         )
 
     def test_lista_vacia_se_rechaza(self) -> None:

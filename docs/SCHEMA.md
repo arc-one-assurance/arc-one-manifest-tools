@@ -9,15 +9,12 @@ nube vive el agente y cuáles de los recursos de esa cuenta son suyos.
 manifest_version: "1.3"
 deployment_target: cloud-run/google   # en qué plataforma corre
 
-infra_binding:                        # opcional · lista · dónde vive y qué es suyo
+infra_binding:                        # opcional · dónde vive y qué es suyo
   - account: acme-prod                # projectId (GCP) / accountId (AWS)
     scope:
       resource_prefixes: [nova-]
       regions: [europe-west1]
       labels: { app: nova }           # se acepta, todavía NO recorta (ver abajo)
-  - account: "112233445566"           # un agente puede vivir en más de una nube
-    scope:
-      resource_prefixes: [nova-events-]
 ```
 
 **Reglas:**
@@ -29,8 +26,13 @@ infra_binding:                        # opcional · lista · dónde vive y qué 
 - **`scope` es obligatorio** en cada binding, con al menos `resource_prefixes` o
   `regions`. Un scope de solo `labels` se rechaza: los escaneos todavía no traen
   etiquetas, así que no recortaría nada — declaración muerta silenciosa, jamás.
-- **Una cuenta, un binding**: si el agente usa varios grupos de recursos de la misma
-  cuenta, van todos en el mismo `scope`.
+- **Una nube por agente.** El bloque es una lista, pero hoy se declara **un solo
+  binding**: el de la cuenta donde corre el agente, la de su `deployment_target` (que el
+  wizard también declara de a uno). Declarar dos cuentas se **rechaza** en la validación
+  — Arc One analizaría una sola y el cliente creería que mira las dos. Si el agente usa
+  varios grupos de recursos de esa cuenta, van todos en el mismo `scope`. El día que
+  Arc One soporte multi-nube por agente, la lista ya está lista para recibirlo y no hay
+  que migrar ningún archivo.
 - **Efecto sobre el bump de versión** (lo que sugiere `gate`): cambiar de plataforma
   (`deployment_target`) o de `account` → **minor** (otra credencial, otra frontera de
   seguridad). Reacomodar el `scope` dentro de la misma cuenta → **patch**.
@@ -38,8 +40,8 @@ infra_binding:                        # opcional · lista · dónde vive y qué 
   YAML lo lee como número. El CLI lo normaliza igual que Arc One antes de comparar, así
   que el gate no se rompe — pero el bloque se lee mejor y evita sorpresas con otras
   herramientas que toquen el archivo.
-- **El orden de la lista no significa nada**: reordenar dos bindings no es un cambio
-  material y no dispara el gate.
+- **El orden de la lista no significa nada** (queda como garantía del `gate`, hoy sin
+  efecto práctico con un único binding).
 - **Sólo `account` y `scope`.** Cualquier otra clave (por ejemplo `provider`) se
   **rechaza** en la validación, igual que un `infra_bindings` en plural: un bloque que
   se ignora en silencio es peor que uno inválido, porque nadie se entera.

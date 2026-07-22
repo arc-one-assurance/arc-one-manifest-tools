@@ -437,6 +437,18 @@ def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_bi
         )
         return
 
+    if len(items) > 1:
+        # Arc One analiza UNA nube por agente: la de su `deployment_target`, que el wizard
+        # declara de a una. Aceptar dos acá y que el registro las rechace le haría descubrir
+        # el problema recién en el push — se dice acá, donde el manifiesto se escribe.
+        _err(
+            errors,
+            path,
+            f"declara {len(items)} cuentas y Arc One analiza una sola nube por agente — "
+            "dejá la cuenta donde corre este agente (la de su deployment_target) y juntá "
+            "todo su alcance en ese único binding",
+        )
+
     seen_accounts: Dict[str, int] = {}
     for idx, item in enumerate(items):
         if not isinstance(item, dict):
