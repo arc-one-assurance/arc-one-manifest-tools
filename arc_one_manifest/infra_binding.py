@@ -97,19 +97,26 @@ def normalized_bindings(manifest: Dict[str, Any]) -> Optional[List[Dict[str, Any
         scope_raw = item.get("scope") if isinstance(item.get("scope"), dict) else {}
 
         scope: Dict[str, Any] = {}
-        prefixes = _clean_str_list(
-            scope_raw.get("resource_prefixes")
-            if scope_raw.get("resource_prefixes") is not None
-            else scope_raw.get("resourcePrefixes")
-        )
-        if prefixes:
-            scope["resource_prefixes"] = prefixes
-        regions = _clean_str_list(scope_raw.get("regions"))
-        if regions:
-            scope["regions"] = regions
-        labels = _clean_labels(scope_raw.get("labels"))
-        if labels:
-            scope["labels"] = labels
+        if scope_raw.get("all") is True:
+            # Cuenta dedicada: la forma canónica es SOLO `{"all": true}`. El validador ya
+            # rechaza combinarlo con el recorte; acá se normaliza igual de defensivo para
+            # que el hash nunca dependa de claves que no tienen efecto. Espeja
+            # `_infra_binding_for_export` del platform.
+            scope["all"] = True
+        else:
+            prefixes = _clean_str_list(
+                scope_raw.get("resource_prefixes")
+                if scope_raw.get("resource_prefixes") is not None
+                else scope_raw.get("resourcePrefixes")
+            )
+            if prefixes:
+                scope["resource_prefixes"] = prefixes
+            regions = _clean_str_list(scope_raw.get("regions"))
+            if regions:
+                scope["regions"] = regions
+            labels = _clean_labels(scope_raw.get("labels"))
+            if labels:
+                scope["labels"] = labels
 
         bindings.append({"account": account, "scope": scope})
 
@@ -149,6 +156,8 @@ def bindings_to_payload(manifest: Dict[str, Any]) -> Optional[List[Dict[str, Any
     for item in norm:
         scope = item["scope"]
         mapped: Dict[str, Any] = {}
+        if scope.get("all") is True:
+            mapped["all"] = True
         if scope.get("resource_prefixes"):
             mapped["resourcePrefixes"] = list(scope["resource_prefixes"])
         if scope.get("regions"):

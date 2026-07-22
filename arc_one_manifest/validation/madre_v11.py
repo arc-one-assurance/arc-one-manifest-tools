@@ -384,7 +384,7 @@ def _validate_str_list(errors: List[str], value: Any, path: str) -> List[str]:
 
 
 _BINDING_KEYS = frozenset({"account", "scope"})
-_SCOPE_KEYS = frozenset({"resource_prefixes", "resourcePrefixes", "regions", "labels"})
+_SCOPE_KEYS = frozenset({"all", "resource_prefixes", "resourcePrefixes", "regions", "labels"})
 # Errores de tipeo que valen una corrección explícita en vez de "clave desconocida".
 _SCOPE_TYPOS = {
     "resource_prefix": "resource_prefixes",
@@ -525,6 +525,38 @@ def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_bi
         )
         regions = _validate_str_list(errors, scope.get("regions"), f"{path}[{idx}].scope.regions")
 
+        # `all: true` = la cuenta es dedicada a este agente (el caso natural de un
+        # proyecto exclusivo). Es EXCLUYENTE con el recorte: "es dedicada pero sólo
+        # estos prefijos" es contradictorio, y una contradicción aceptada en silencio
+        # es una declaración muerta (decisión 14).
+        all_flag = scope.get("all")
+        declares_recorte = any(
+            key in scope for key in ("resource_prefixes", "resourcePrefixes", "regions", "labels")
+        )
+        if all_flag is not None:
+            if not isinstance(all_flag, bool):
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope.all",
+                    "debe ser `true` (la cuenta entera es de este agente); para un "
+                    "alcance parcial usá `resource_prefixes` y/o `regions`",
+                )
+            elif all_flag is False:
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope.all",
+                    "`all: false` no significa nada — omitilo y declará el recorte con "
+                    "`resource_prefixes` y/o `regions`",
+                )
+            elif declares_recorte:
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope",
+                    "`all: true` dice que la cuenta entera es de este agente y no se "
+                    "combina con `resource_prefixes`, `regions` ni `labels` — elegí un "
+                    "modo: cuenta dedicada (`all: true`) o recorte declarado",
+                )
+
         labels = scope.get("labels")
         if labels is not None:
             if not isinstance(labels, dict):
@@ -544,13 +576,14 @@ def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_bi
                             "debe ser un valor simple no vacío",
                         )
 
-        if not prefixes and not regions:
+        if all_flag is not True and not prefixes and not regions:
             _err(
                 errors,
                 f"{path}[{idx}].scope",
-                "requiere al menos `resource_prefixes` o `regions` — `labels` se acepta pero "
-                "todavía no recorta nada (los escaneos aún no traen etiquetas), así que un "
-                "scope de solo labels no delimitaría ningún recurso",
+                "requiere `all: true` (cuenta dedicada al agente) o al menos "
+                "`resource_prefixes` o `regions` — `labels` se acepta pero todavía no "
+                "recorta nada (los escaneos aún no traen etiquetas), así que un scope de "
+                "solo labels no delimitaría ningún recurso",
             )
 
 

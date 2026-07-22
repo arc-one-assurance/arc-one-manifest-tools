@@ -148,6 +148,49 @@ class InfraBindingValidationTest(unittest.TestCase):
         self.assertTrue(any("labels" in e for e in errors), errors)
 
 
+class InfraBindingScopeAllTest(unittest.TestCase):
+    """`scope: {all: true}` — la cuenta dedicada al agente (proyecto exclusivo)."""
+
+    def test_all_true_es_valido(self) -> None:
+        self.assertEqual(errors_for([{"account": "acme-nova-prod", "scope": {"all": True}}]), [])
+
+    def test_all_false_se_rechaza(self) -> None:
+        """`all: false` no significa nada — aceptarlo sería una declaración muerta."""
+        errors = errors_for([{"account": "acme-prod", "scope": {"all": False}}])
+        self.assertTrue(any("all: false" in e for e in errors), errors)
+
+    def test_all_no_booleano_se_rechaza(self) -> None:
+        errors = errors_for([{"account": "acme-prod", "scope": {"all": "yes"}}])
+        self.assertTrue(any("scope.all" in e for e in errors), errors)
+
+    def test_all_mas_prefijos_se_rechaza_por_contradictorio(self) -> None:
+        """"Es dedicada pero sólo estos prefijos" no tiene una lectura única: se rechaza."""
+        errors = errors_for(
+            [
+                {
+                    "account": "acme-prod",
+                    "scope": {"all": True, "resource_prefixes": ["nova-"]},
+                }
+            ]
+        )
+        self.assertTrue(any("no se" in e and "combina" in e for e in errors), errors)
+
+    def test_all_mas_labels_se_rechaza(self) -> None:
+        errors = errors_for(
+            [{"account": "acme-prod", "scope": {"all": True, "labels": {"app": "nova"}}}]
+        )
+        self.assertTrue(any("combina" in e for e in errors), errors)
+
+    def test_payload_mapea_all(self) -> None:
+        payload = manifest_to_registro_payload(
+            manifest_with([{"account": "acme-nova-prod", "scope": {"all": True}}])
+        )
+        self.assertEqual(
+            payload["identidad"]["infraBinding"],
+            [{"account": "acme-nova-prod", "scope": {"all": True}}],
+        )
+
+
 class InfraBindingPayloadTest(unittest.TestCase):
     def test_mapea_a_identidad_infra_binding_en_camel_case(self) -> None:
         payload = manifest_to_registro_payload(

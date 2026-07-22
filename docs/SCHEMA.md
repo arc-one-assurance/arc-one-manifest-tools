@@ -5,6 +5,10 @@
 Bloque **opcional**, **top-level**, junto a `deployment_target`. Declara en qué cuenta de
 nube vive el agente y cuáles de los recursos de esa cuenta son suyos.
 
+> Declarar la infraestructura vinculada **no cambia la criticidad del agente**: cambia la
+> precisión con la que Arc One valida lo declarado contra lo que realmente existe en tu
+> nube (sin el bloque, los recursos se identifican por similitud de nombre).
+
 ```yaml
 manifest_version: "1.3"
 deployment_target: cloud-run/google   # en qué plataforma corre
@@ -17,15 +21,30 @@ infra_binding:                        # opcional · dónde vive y qué es suyo
       labels: { app: nova }           # se acepta, todavía NO recorta (ver abajo)
 ```
 
+Si la cuenta es **dedicada** al agente (un proyecto exclusivo, el caso de Nova), el
+scope se declara entero de una:
+
+```yaml
+infra_binding:
+  - account: acme-nova-prod
+    scope:
+      all: true                       # la cuenta entera es de este agente
+```
+
 **Reglas:**
+
+- **`all: true` es excluyente con el recorte.** "La cuenta es dedicada pero sólo estos
+  prefijos" es contradictorio: se rechaza combinar `all` con `resource_prefixes`,
+  `regions` o `labels`. `all: false` también se rechaza (no significa nada — omitilo).
 
 - **Nunca lleva credenciales.** El `account` es una coordenada, no un secreto — la
   credencial de la nube se carga una sola vez en Arc One, por cuenta y por workspace.
   Es lo que hace que este bloque sea seguro de commitear al repo.
 - **El proveedor no se declara, se deriva** de la cuenta conectada en Arc One.
-- **`scope` es obligatorio** en cada binding, con al menos `resource_prefixes` o
-  `regions`. Un scope de solo `labels` se rechaza: los escaneos todavía no traen
-  etiquetas, así que no recortaría nada — declaración muerta silenciosa, jamás.
+- **`scope` es obligatorio** en cada binding: `all: true` (cuenta dedicada) o al menos
+  `resource_prefixes` o `regions`. Un scope de solo `labels` se rechaza: los escaneos
+  todavía no traen etiquetas, así que no recortaría nada — declaración muerta
+  silenciosa, jamás.
 - **Una nube por agente.** El bloque es una lista, pero hoy se declara **un solo
   binding**: el de la cuenta donde corre el agente, la de su `deployment_target` (que el
   wizard también declara de a uno). Declarar dos cuentas se **rechaza** en la validación
