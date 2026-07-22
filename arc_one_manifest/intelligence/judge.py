@@ -13,6 +13,7 @@ import httpx
 from arc_one_manifest.intelligence.catalog import resolve_signal_catalog_id
 from arc_one_manifest.intelligence.models import AuditFinding, CodeSignal, Evidence, ManifestSummary
 from arc_one_manifest.material_paths import MATERIAL_PATHS
+from arc_one_manifest.register import ci_provenance_headers
 
 _PROMPT_PATH = Path(__file__).parent / "prompts" / "audit_judge_v1.txt"
 _DEFAULT_MODEL = "claude-sonnet-4-6"
@@ -240,7 +241,10 @@ def run_platform_judge(
     with httpx.Client(timeout=timeout) as client:
         resp = client.post(
             url,
-            headers={"Authorization": f"Bearer {token}"},
+            # La procedencia va en TODA llamada al platform, no sólo en el registro: un
+            # repo cuyo workflow corre sólo el audit reportaría y aun así figuraría
+            # "sin reportar hace N días" en la sección Conectividad (Card 8).
+            headers={"Authorization": f"Bearer {token}", **ci_provenance_headers()},
             json=api_body,
         )
         resp.raise_for_status()

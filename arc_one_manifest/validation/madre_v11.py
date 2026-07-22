@@ -4,8 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Sequence
 
-MANIFEST_VERSION = "1.2"
-MANIFEST_VERSIONS = frozenset({"1.1", "1.2"})
+MANIFEST_VERSION = "1.3"
+MANIFEST_VERSIONS = frozenset({"1.1", "1.2", "1.3"})
 
 AGENT_RELATION_TYPES = frozenset({"INVOKE", "DELEGATE", "COORDINATE"})
 MCP_TRANSPORTS = frozenset({"stdio", "sse", "streamable-http"})
@@ -367,6 +367,227 @@ def _validate_agent_dependencies(errors: List[str], items: Any, path: str = "age
                 _err(errors, f"{path}[{idx}].relation_type", f"valor inválido `{rt_str}`")
 
 
+def _validate_str_list(errors: List[str], value: Any, path: str) -> List[str]:
+    """Valida una lista de strings no vacíos. Devuelve los valores limpios."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        _err(errors, path, "debe ser una lista de strings")
+        return []
+    cleaned: List[str] = []
+    for idx, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            _err(errors, f"{path}[{idx}]", "debe ser un string no vacío")
+            continue
+        cleaned.append(item.strip())
+    return cleaned
+
+
+_BINDING_KEYS = frozenset({"account", "scope"})
+_SCOPE_KEYS = frozenset({"all", "resource_prefixes", "resourcePrefixes", "regions", "labels"})
+# Errores de tipeo que valen una corrección explícita en vez de "clave desconocida".
+_SCOPE_TYPOS = {
+    "resource_prefix": "resource_prefixes",
+    "prefixes": "resource_prefixes",
+    "prefix": "resource_prefixes",
+    "region": "regions",
+    "label": "labels",
+    "tags": "labels",
+}
+# Lo mismo a nivel top-level: `infra_bindings` (plural) es el error natural, y hoy pasa
+# la validación entera sin decir nada — el agente cree que declaró dónde vive y Arc One
+# sigue adivinando por heurística de nombre.
+_TOP_LEVEL_TYPOS = {
+    "infra_bindings": "infra_binding",
+    "infrabinding": "infra_binding",
+    "infra-binding": "infra_binding",
+    "infraBindings": "infra_binding",
+}
+
+
+def validate_infra_binding_typos(errors: List[str], manifest: Dict[str, Any]) -> None:
+    """Un bloque bien escrito pero mal nombrado es peor que uno inválido: no se nota."""
+    if "infra_binding" in manifest or "infraBinding" in manifest:
+        return
+    for key in manifest:
+        if str(key) in _TOP_LEVEL_TYPOS:
+            _err(
+                errors,
+                str(key),
+                f"¿quisiste decir `{_TOP_LEVEL_TYPOS[str(key)]}`? Tal como está, el bloque "
+                "se ignora entero y Arc One no sabe en qué cuenta vive este agente",
+            )
+
+
+def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_binding") -> None:
+    """Valida el bloque opcional `infra_binding` (lista · capas 2+3 de conectividad).
+
+    Declara DÓNDE opera el agente: en qué cuenta de nube (`account`) y cuáles de los
+    recursos de esa cuenta son suyos (`scope`). Nunca lleva credenciales — esas viven
+    en la conexión del workspace, no en el repo del cliente.
+    """
+    if items is None:
+        return
+    if not isinstance(items, list) or not items:
+        _err(
+            errors,
+            path,
+            "debe ser una lista con al menos un binding, o omitirse por completo "
+            "(no se declara vacío)",
+        )
+        return
+
+    if len(items) > 1:
+        # Arc One analiza UNA nube por agente: la de su `deployment_target`, que el wizard
+        # declara de a una. Aceptar dos acá y que el registro las rechace le haría descubrir
+        # el problema recién en el push — se dice acá, donde el manifiesto se escribe.
+        _err(
+            errors,
+            path,
+            f"declara {len(items)} cuentas y Arc One analiza una sola nube por agente — "
+            "dejá la cuenta donde corre este agente (la de su deployment_target) y juntá "
+            "todo su alcance en ese único binding",
+        )
+
+    seen_accounts: Dict[str, int] = {}
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            _err(errors, f"{path}[{idx}]", "debe ser un objeto con `account` y `scope`")
+            continue
+
+        # Una clave que no existe se ignoraba en silencio: el cliente creía haber
+        # declarado algo y Arc One nunca lo recibía (declaración muerta · decisión 14).
+        for key in sorted(set(item) - _BINDING_KEYS):
+            _err(
+                errors,
+                f"{path}[{idx}].{key}",
+                "clave desconocida — un binding sólo lleva `account` y `scope` "
+                "(el proveedor de nube lo deduce Arc One de la cuenta; no se declara)",
+            )
+
+        if isinstance(item.get("account"), (int, float)) and not isinstance(
+            item.get("account"), bool
+        ):
+            _err(
+                errors,
+                f"{path}[{idx}].account",
+                'escribilo entre comillas ("112233445566"): sin comillas YAML lo lee como '
+                "número y deja de coincidir con lo que Arc One tiene registrado",
+            )
+
+        account = str(item.get("account") or "").strip()
+        if not account:
+            _err(
+                errors,
+                f"{path}[{idx}]",
+                "falta `account` (projectId del proyecto GCP o accountId de la cuenta AWS)",
+            )
+        elif len(account) > 256:
+            _err(errors, f"{path}[{idx}].account", "máximo 256 caracteres")
+        elif account in seen_accounts:
+            _err(
+                errors,
+                f"{path}[{idx}].account",
+                f"cuenta duplicada `{account}` (ya declarada en {path}[{seen_accounts[account]}]) "
+                "— un solo binding por cuenta, con todo su alcance junto",
+            )
+        else:
+            seen_accounts[account] = idx
+
+        scope = item.get("scope")
+        if scope is None:
+            _err(
+                errors,
+                f"{path}[{idx}].scope",
+                "campo obligatorio faltante — declará qué recursos de la cuenta son de este "
+                "agente (`all: true` si la cuenta es dedicada, o `resource_prefixes` y/o "
+                "`regions`)",
+            )
+            continue
+        if not isinstance(scope, dict):
+            _err(errors, f"{path}[{idx}].scope", "debe ser un objeto YAML")
+            continue
+
+        for key in sorted(set(scope) - _SCOPE_KEYS):
+            sugerencia = ""
+            if key in _SCOPE_TYPOS:
+                sugerencia = f" — ¿quisiste decir `{_SCOPE_TYPOS[key]}`?"
+            _err(
+                errors,
+                f"{path}[{idx}].scope.{key}",
+                f"clave desconocida{sugerencia}. El alcance se declara con "
+                "`resource_prefixes`, `regions` y/o `labels`",
+            )
+
+        prefixes = _validate_str_list(
+            errors,
+            scope.get("resource_prefixes") or scope.get("resourcePrefixes"),
+            f"{path}[{idx}].scope.resource_prefixes",
+        )
+        regions = _validate_str_list(errors, scope.get("regions"), f"{path}[{idx}].scope.regions")
+
+        # `all: true` = la cuenta es dedicada a este agente (el caso natural de un
+        # proyecto exclusivo). Es EXCLUYENTE con el recorte: "es dedicada pero sólo
+        # estos prefijos" es contradictorio, y una contradicción aceptada en silencio
+        # es una declaración muerta (decisión 14).
+        all_flag = scope.get("all")
+        declares_recorte = any(
+            key in scope for key in ("resource_prefixes", "resourcePrefixes", "regions", "labels")
+        )
+        if all_flag is not None:
+            if not isinstance(all_flag, bool):
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope.all",
+                    "debe ser `true` (la cuenta entera es de este agente); para un "
+                    "alcance parcial usá `resource_prefixes` y/o `regions`",
+                )
+            elif all_flag is False:
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope.all",
+                    "`all: false` no significa nada — omitilo y declará el recorte con "
+                    "`resource_prefixes` y/o `regions`",
+                )
+            elif declares_recorte:
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope",
+                    "`all: true` dice que la cuenta entera es de este agente y no se "
+                    "combina con `resource_prefixes`, `regions` ni `labels` — elegí un "
+                    "modo: cuenta dedicada (`all: true`) o recorte declarado",
+                )
+
+        labels = scope.get("labels")
+        if labels is not None:
+            if not isinstance(labels, dict):
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope.labels",
+                    "debe ser un objeto de pares clave: valor (ej. `app: nova`)",
+                )
+            else:
+                for key, val in labels.items():
+                    if not str(key).strip():
+                        _err(errors, f"{path}[{idx}].scope.labels", "clave vacía")
+                    elif not isinstance(val, (str, int, float, bool)) or not str(val).strip():
+                        _err(
+                            errors,
+                            f"{path}[{idx}].scope.labels.{key}",
+                            "debe ser un valor simple no vacío",
+                        )
+
+        if all_flag is not True and not prefixes and not regions:
+            _err(
+                errors,
+                f"{path}[{idx}].scope",
+                "requiere `all: true` (cuenta dedicada al agente) o al menos "
+                "`resource_prefixes` o `regions` — `labels` se acepta pero todavía no "
+                "recorta nada (los escaneos aún no traen etiquetas), así que un scope de "
+                "solo labels no delimitaría ningún recurso",
+            )
+
+
 def validate_madre_manifest(
     manifest: Dict[str, Any],
     *,
@@ -448,6 +669,14 @@ def validate_madre_manifest(
     deployment_target = _require_str(errors, manifest, "deployment_target", "deployment_target")
     if deployment_target is None:
         deployment_target = _require_str(errors, manifest, "deploymentTarget", "deployment_target")
+
+    # Opcional · top-level junto a deployment_target: los hechos de "dónde vive
+    # físicamente el agente" van todos juntos (v1.3).
+    _validate_infra_binding(
+        errors,
+        manifest.get("infra_binding") if "infra_binding" in manifest else manifest.get("infraBinding"),
+    )
+    validate_infra_binding_typos(errors, manifest)
 
     regulated = manifest.get("regulated_context") or manifest.get("regulatedContext")
     if not isinstance(regulated, list) or not regulated:

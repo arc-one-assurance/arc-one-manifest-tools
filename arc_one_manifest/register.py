@@ -8,11 +8,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 import yaml
+
+from arc_one_manifest.infra_binding import bindings_to_payload
 
 
 def _normalize_network_exposure(raw: Any) -> str:
@@ -309,8 +312,50 @@ def _v2_manifest_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(json.dumps(payload))
 
 
+def _infra_binding_to_payload(manifest: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Map `infra_binding` (YAML snake_case) → identidad.infraBinding (payload camelCase).
+
+    Coordenadas, nunca secretos: la credencial de la nube vive en la conexión del
+    workspace. El provider no se declara — Arc One lo deriva de la cuenta.
+
+    Delega en el normalizador único (`infra_binding.py`) para mandar EXACTAMENTE la
+    misma forma que el `gate` hashea. Mandar algo distinto de lo que se compara es
+    justamente lo que dejaba el CI del cliente bloqueado sin salida.
+    """
+    return bindings_to_payload(manifest)
+
+
+def _clean_header(value: str) -> str:
+    """Un header con `\\n` adentro tumba la request entera (LocalProtocolError).
+
+    `ARC_ONE_REPO` / `ARC_ONE_RUN_REF` son los overrides para CI que no sea GitHub, o
+    sea variables que setea el cliente. Un salto de línea ahí haría que `register`
+    muera con un traceback de Python en vez de registrar.
+    """
+    return re.sub(r"[\r\n\t]+", " ", value or "").strip()[:256]
+
+
+def ci_provenance_headers() -> Dict[str, str]:
+    """De qué repo y qué corrida viene esta llamada.
+
+    Arc One nunca entra al repo del cliente (push puro, por diseño), así que estos dos
+    headers son la ÚNICA forma de que sepa qué repositorio está reportando y cuándo. Sin
+    esto, un repo que dejó de reportar es indistinguible de uno que nunca se conectó.
+
+    Se leen de las variables que GitHub Actions ya define; nada que el cliente configure.
+    """
+    out: Dict[str, str] = {}
+    repo = os.environ.get("ARC_ONE_REPO") or os.environ.get("GITHUB_REPOSITORY") or ""
+    if _clean_header(repo):
+        out["X-Arc-One-Repo"] = _clean_header(repo)
+    run = os.environ.get("ARC_ONE_RUN_REF") or os.environ.get("GITHUB_RUN_ID") or ""
+    if _clean_header(run):
+        out["X-Arc-One-Run"] = _clean_header(run)
+    return out
+
+
 def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """Map MADRE v1.1/v1.2 YAML (export from wizard) → RegistroManifestV2Body JSON."""
+    """Map MADRE v1.1/v1.2/v1.3 YAML (export from wizard) → RegistroManifestV2Body JSON."""
     sp = manifest.get("system_prompt") or {}
     caps = manifest.get("declared_capabilities") or {}
 
@@ -331,6 +376,10 @@ def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "identidad": {
             "name": manifest["name"],
+            "manifestVersion": str(
+                manifest.get("manifest_version") or manifest.get("manifestVersion") or ""
+            ).strip()
+            or None,
             "agentVersion": manifest.get("agent_version") or manifest.get("agentVersion") or "1.0.0",
             "agentType": manifest.get("agent_type") or manifest.get("agentType") or ["conversational"],
             "environment": manifest.get("environment") or ["non-productive"],
@@ -419,6 +468,10 @@ def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
             ],
         },
     }
+    infra_binding = _infra_binding_to_payload(manifest)
+    if infra_binding:
+        payload["identidad"]["infraBinding"] = infra_binding
+
     if conectividad and conectividad.get("endpointUrl"):
         payload["conectividad"] = conectividad
         _attach_outbound_token_from_env(payload["conectividad"])
@@ -476,6 +529,7 @@ def apply(
         headers["Authorization"] = f"Bearer {token}"
     if debug_sub:
         headers["X-ArcOne-Debug-Sub"] = debug_sub
+    headers.update(ci_provenance_headers())
 
     r = httpx.post(url, headers=headers, json=payload, timeout=120.0)
     if not (200 <= r.status_code < 300):

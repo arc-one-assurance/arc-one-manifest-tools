@@ -12,7 +12,9 @@ from typing import Any, Dict, Optional, Tuple
 import httpx
 import yaml
 
+from arc_one_manifest.infra_binding import binding_accounts, canonical_bindings, raw_infra_binding
 from arc_one_manifest.material_paths import MATERIAL_PATHS
+from arc_one_manifest.register import ci_provenance_headers
 
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
@@ -55,6 +57,16 @@ def _normalize_for_drift(manifest: Dict[str, Any]) -> Dict[str, Any]:
         con = dict(con)
         con.pop("endpointUrl", None)
         m["connector"] = con
+
+    # `infra_binding` va a la forma canónica ANTES de hashear. El platform normaliza al
+    # ingerir (account numérico → string, prefijos deduplicados, labels a string); si
+    # acá se hashea el YAML crudo, los dos lados no coinciden nunca y el CI del cliente
+    # queda bloqueado sin poder converger. Ver `infra_binding.py`.
+    for key in ("infra_binding", "infraBinding"):
+        m.pop(key, None)
+    canon = canonical_bindings(manifest)
+    if canon:
+        m["infra_binding"] = canon
     return m
 
 
@@ -92,14 +104,71 @@ def _is_increment(prev: str, new: str) -> bool:
     return n > p
 
 
+def _binding_accounts(manifest: Dict[str, Any]) -> set:
+    """Cuentas de nube declaradas en infra_binding (ignora el scope)."""
+    return binding_accounts(manifest)
+
+
 def _suggest_bump_level(repo: Dict[str, Any], registered: Dict[str, Any]) -> str:
-    """Heuristic bump suggestion for CI messages / --write-bump."""
+    """Heuristic bump suggestion for CI messages / --write-bump.
+
+    Compara sobre la forma NORMALIZADA, igual que el hash de drift. Sin esto, un salto de
+    línea final en `purpose` o en el `system_prompt` —que YAML agrega solo con los bloques
+    `|`, o sea en casi todos los manifiestos reales— contaba como cambio material y la
+    sugerencia era `minor` siempre, sin importar qué se hubiera tocado.
+    """
+    repo = _normalize_for_drift(repo)
+    registered = _normalize_for_drift(registered)
     if (repo.get("agent_model") or "") != (registered.get("agent_model") or ""):
         return "major"
     for path in _MATERIAL_PATHS:
         if repo.get(path) != registered.get(path):
             return "minor"
+    # Mudanza de infra = cambio de fondo. Cambiar de plataforma (deployment_target) o de
+    # cuenta de nube implica otra credencial y otra frontera de seguridad → minor.
+    # Reacomodar el scope DENTRO de la misma cuenta es un ajuste fino → patch.
+    if (repo.get("deployment_target") or repo.get("deploymentTarget") or "") != (
+        registered.get("deployment_target") or registered.get("deploymentTarget") or ""
+    ):
+        return "minor"
+    if _binding_accounts(repo) != _binding_accounts(registered):
+        return "minor"
     return "patch"
+
+
+def _infra_binding_hint(
+    repo: Dict[str, Any],
+    registered: Dict[str, Any],
+    repo_version: str,
+    reg_version: str,
+) -> str:
+    """Explica el único caso en que este FAIL no converge por más que bumpees.
+
+    Si el repo declara `infra_binding` y Arc One no lo devuelve, hay dos causas
+    posibles y desde acá no se distinguen: (a) todavía no registraste la versión que lo
+    agrega — normal, bumpeás y listo; (b) tu instancia de Arc One es anterior al bloque
+    (Manifest 1.3) y lo ignora al ingerir, así que registrás y NUNCA queda guardado.
+
+    En (b) el gate falla para siempre. Se nota porque ya registraste esta misma versión
+    y el bloque sigue sin volver. No excluimos el bloque del hash por las nuestras: eso
+    sería declarar conforme algo que Arc One no está gobernando.
+    """
+    if not canonical_bindings(repo):
+        return ""
+    if raw_infra_binding(registered) is not None:
+        return ""
+    hint = (
+        "\n\n  Nota: tu repo declara `infra_binding` y Arc One no lo devuelve."
+        "\n  Si acabás de agregar el bloque, esto es normal: bumpeá y registrá."
+    )
+    if repo_version and repo_version == reg_version:
+        hint += (
+            "\n  ⚠️  Pero esta versión YA está registrada y el bloque no volvió: es probable"
+            "\n      que tu instancia de Arc One todavía no soporte `infra_binding`"
+            "\n      (Manifest 1.3). Hasta que se actualice, el gate va a seguir fallando"
+            "\n      aunque bumpees. Consultá con tu administrador de Arc One."
+        )
+    return hint
 
 
 def _fetch_registered_manifest(
@@ -115,6 +184,7 @@ def _fetch_registered_manifest(
         headers["Authorization"] = f"Bearer {token}"
     if debug_sub:
         headers["X-ArcOne-Debug-Sub"] = debug_sub
+    headers.update(ci_provenance_headers())
 
     if not agent_id and nombre_canonico:
         r = httpx.get(
@@ -247,6 +317,7 @@ def validate_gate(
             f"  In repo:    {repo_version}\n"
             f"  Suggested:  {suggested} ({level} bump)\n"
             f"  Run: arc-one-manifest gate {path} --write-bump {level}"
+            f"{_infra_binding_hint(repo_manifest, registered, repo_version, reg_version)}"
         )
 
     print(

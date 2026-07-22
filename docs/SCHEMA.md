@@ -1,5 +1,70 @@
 # Evolución del schema del manifest
 
+## `infra_binding` — dónde opera el agente (v1.3)
+
+Bloque **opcional**, **top-level**, junto a `deployment_target`. Declara en qué cuenta de
+nube vive el agente y cuáles de los recursos de esa cuenta son suyos.
+
+> Declarar la infraestructura vinculada **no cambia la criticidad del agente**: cambia la
+> precisión con la que Arc One valida lo declarado contra lo que realmente existe en tu
+> nube (sin el bloque, los recursos se identifican por similitud de nombre).
+
+```yaml
+manifest_version: "1.3"
+deployment_target: cloud-run/google   # en qué plataforma corre
+
+infra_binding:                        # opcional · dónde vive y qué es suyo
+  - account: acme-prod                # projectId (GCP) / accountId (AWS)
+    scope:
+      resource_prefixes: [nova-]
+      regions: [europe-west1]
+      labels: { app: nova }           # se acepta, todavía NO recorta (ver abajo)
+```
+
+Si la cuenta es **dedicada** al agente (un proyecto exclusivo, el caso de Nova), el
+scope se declara entero de una:
+
+```yaml
+infra_binding:
+  - account: acme-nova-prod
+    scope:
+      all: true                       # la cuenta entera es de este agente
+```
+
+**Reglas:**
+
+- **`all: true` es excluyente con el recorte.** "La cuenta es dedicada pero sólo estos
+  prefijos" es contradictorio: se rechaza combinar `all` con `resource_prefixes`,
+  `regions` o `labels`. `all: false` también se rechaza (no significa nada — omitilo).
+
+- **Nunca lleva credenciales.** El `account` es una coordenada, no un secreto — la
+  credencial de la nube se carga una sola vez en Arc One, por cuenta y por workspace.
+  Es lo que hace que este bloque sea seguro de commitear al repo.
+- **El proveedor no se declara, se deriva** de la cuenta conectada en Arc One.
+- **`scope` es obligatorio** en cada binding: `all: true` (cuenta dedicada) o al menos
+  `resource_prefixes` o `regions`. Un scope de solo `labels` se rechaza: los escaneos
+  todavía no traen etiquetas, así que no recortaría nada — declaración muerta
+  silenciosa, jamás.
+- **Una nube por agente.** El bloque es una lista, pero hoy se declara **un solo
+  binding**: el de la cuenta donde corre el agente, la de su `deployment_target` (que el
+  wizard también declara de a uno). Declarar dos cuentas se **rechaza** en la validación
+  — Arc One analizaría una sola y el cliente creería que mira las dos. Si el agente usa
+  varios grupos de recursos de esa cuenta, van todos en el mismo `scope`. El día que
+  Arc One soporte multi-nube por agente, la lista ya está lista para recibirlo y no hay
+  que migrar ningún archivo.
+- **Efecto sobre el bump de versión** (lo que sugiere `gate`): cambiar de plataforma
+  (`deployment_target`) o de `account` → **minor** (otra credencial, otra frontera de
+  seguridad). Reacomodar el `scope` dentro de la misma cuenta → **patch**.
+- 🔴 **Un `account` de AWS son 12 dígitos: escribilo ENTRE COMILLAS.** Sin comillas,
+  YAML lo lee como número. El CLI lo normaliza igual que Arc One antes de comparar, así
+  que el gate no se rompe — pero el bloque se lee mejor y evita sorpresas con otras
+  herramientas que toquen el archivo.
+- **El orden de la lista no significa nada** (queda como garantía del `gate`, hoy sin
+  efecto práctico con un único binding).
+- **Sólo `account` y `scope`.** Cualquier otra clave (por ejemplo `provider`) se
+  **rechaza** en la validación, igual que un `infra_bindings` en plural: un bloque que
+  se ignora en silencio es peor que uno inválido, porque nadie se entera.
+
 ## Hoy (MADRE v1.1)
 
 | Qué puede cambiar el cliente | Dónde |
@@ -81,6 +146,13 @@ Centro de control permite editar **valores** exportados al manifest, no agregar/
 | `manifest_version` en YAML | Tools tag | API sandbox |
 |----------------------------|-----------|-------------|
 | `1.1` | `v1.x` | RegistroManifestV2Body actual |
+| `1.2` | `v1.x` | RegistroManifestV2Body actual |
+| `1.3` | `v1.4.x+` | + `identidad.infraBinding` (opcional) |
+
+> ⚠️ **`v1.3.2` NO sirve para `manifest_version: "1.3"`.** Esa versión se publicó antes
+> del bloque: ni lo valida ni lo manda al registrar. Un cliente que pinee `@v1.3.2` y
+> declare `infra_binding` tiene un CLI que ignora el bloque en silencio. El soporte
+> entra en **`v1.4.0`**.
 
 Regla para clientes: **`manifest_version` en YAML debe coincidir con la major del tools tag** (`1.1` → `v1.x`).
 
