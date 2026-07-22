@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 import os
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 import yaml
@@ -309,8 +309,37 @@ def _v2_manifest_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
     return json.loads(json.dumps(payload))
 
 
+def _infra_binding_to_payload(manifest: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
+    """Map `infra_binding` (YAML snake_case) → identidad.infraBinding (payload camelCase).
+
+    Coordenadas, nunca secretos: la credencial de la nube vive en la conexión del
+    workspace. El provider no se declara — Arc One lo deriva de la cuenta.
+    """
+    raw = manifest.get("infra_binding")
+    if raw is None:
+        raw = manifest.get("infraBinding")
+    if not isinstance(raw, list) or not raw:
+        return None
+
+    bindings: List[Dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        scope = item.get("scope") if isinstance(item.get("scope"), dict) else {}
+        mapped_scope: Dict[str, Any] = {}
+        prefixes = scope.get("resource_prefixes") or scope.get("resourcePrefixes")
+        if prefixes:
+            mapped_scope["resourcePrefixes"] = list(prefixes)
+        if scope.get("regions"):
+            mapped_scope["regions"] = list(scope["regions"])
+        if scope.get("labels"):
+            mapped_scope["labels"] = dict(scope["labels"])
+        bindings.append({"account": item.get("account"), "scope": mapped_scope})
+    return bindings or None
+
+
 def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
-    """Map MADRE v1.1/v1.2 YAML (export from wizard) → RegistroManifestV2Body JSON."""
+    """Map MADRE v1.1/v1.2/v1.3 YAML (export from wizard) → RegistroManifestV2Body JSON."""
     sp = manifest.get("system_prompt") or {}
     caps = manifest.get("declared_capabilities") or {}
 
@@ -331,6 +360,10 @@ def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "identidad": {
             "name": manifest["name"],
+            "manifestVersion": str(
+                manifest.get("manifest_version") or manifest.get("manifestVersion") or ""
+            ).strip()
+            or None,
             "agentVersion": manifest.get("agent_version") or manifest.get("agentVersion") or "1.0.0",
             "agentType": manifest.get("agent_type") or manifest.get("agentType") or ["conversational"],
             "environment": manifest.get("environment") or ["non-productive"],
@@ -419,6 +452,10 @@ def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
             ],
         },
     }
+    infra_binding = _infra_binding_to_payload(manifest)
+    if infra_binding:
+        payload["identidad"]["infraBinding"] = infra_binding
+
     if conectividad and conectividad.get("endpointUrl"):
         payload["conectividad"] = conectividad
         _attach_outbound_token_from_env(payload["conectividad"])

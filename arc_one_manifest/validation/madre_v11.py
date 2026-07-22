@@ -4,8 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional, Sequence
 
-MANIFEST_VERSION = "1.2"
-MANIFEST_VERSIONS = frozenset({"1.1", "1.2"})
+MANIFEST_VERSION = "1.3"
+MANIFEST_VERSIONS = frozenset({"1.1", "1.2", "1.3"})
 
 AGENT_RELATION_TYPES = frozenset({"INVOKE", "DELEGATE", "COORDINATE"})
 MCP_TRANSPORTS = frozenset({"stdio", "sse", "streamable-http"})
@@ -367,6 +367,114 @@ def _validate_agent_dependencies(errors: List[str], items: Any, path: str = "age
                 _err(errors, f"{path}[{idx}].relation_type", f"valor inválido `{rt_str}`")
 
 
+def _validate_str_list(errors: List[str], value: Any, path: str) -> List[str]:
+    """Valida una lista de strings no vacíos. Devuelve los valores limpios."""
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        _err(errors, path, "debe ser una lista de strings")
+        return []
+    cleaned: List[str] = []
+    for idx, item in enumerate(value):
+        if not isinstance(item, str) or not item.strip():
+            _err(errors, f"{path}[{idx}]", "debe ser un string no vacío")
+            continue
+        cleaned.append(item.strip())
+    return cleaned
+
+
+def _validate_infra_binding(errors: List[str], items: Any, path: str = "infra_binding") -> None:
+    """Valida el bloque opcional `infra_binding` (lista · capas 2+3 de conectividad).
+
+    Declara DÓNDE opera el agente: en qué cuenta de nube (`account`) y cuáles de los
+    recursos de esa cuenta son suyos (`scope`). Nunca lleva credenciales — esas viven
+    en la conexión del workspace, no en el repo del cliente.
+    """
+    if items is None:
+        return
+    if not isinstance(items, list) or not items:
+        _err(
+            errors,
+            path,
+            "debe ser una lista con al menos un binding, o omitirse por completo "
+            "(no se declara vacío)",
+        )
+        return
+
+    seen_accounts: Dict[str, int] = {}
+    for idx, item in enumerate(items):
+        if not isinstance(item, dict):
+            _err(errors, f"{path}[{idx}]", "debe ser un objeto con `account` y `scope`")
+            continue
+
+        account = str(item.get("account") or "").strip()
+        if not account:
+            _err(
+                errors,
+                f"{path}[{idx}]",
+                "falta `account` (projectId del proyecto GCP o accountId de la cuenta AWS)",
+            )
+        elif len(account) > 256:
+            _err(errors, f"{path}[{idx}].account", "máximo 256 caracteres")
+        elif account in seen_accounts:
+            _err(
+                errors,
+                f"{path}[{idx}].account",
+                f"cuenta duplicada `{account}` (ya declarada en {path}[{seen_accounts[account]}]) "
+                "— un solo binding por cuenta, con todo su alcance junto",
+            )
+        else:
+            seen_accounts[account] = idx
+
+        scope = item.get("scope")
+        if scope is None:
+            _err(
+                errors,
+                f"{path}[{idx}].scope",
+                "campo obligatorio faltante — declará qué recursos de la cuenta son de este "
+                "agente (`resource_prefixes` y/o `regions`)",
+            )
+            continue
+        if not isinstance(scope, dict):
+            _err(errors, f"{path}[{idx}].scope", "debe ser un objeto YAML")
+            continue
+
+        prefixes = _validate_str_list(
+            errors,
+            scope.get("resource_prefixes") or scope.get("resourcePrefixes"),
+            f"{path}[{idx}].scope.resource_prefixes",
+        )
+        regions = _validate_str_list(errors, scope.get("regions"), f"{path}[{idx}].scope.regions")
+
+        labels = scope.get("labels")
+        if labels is not None:
+            if not isinstance(labels, dict):
+                _err(
+                    errors,
+                    f"{path}[{idx}].scope.labels",
+                    "debe ser un objeto de pares clave: valor (ej. `app: nova`)",
+                )
+            else:
+                for key, val in labels.items():
+                    if not str(key).strip():
+                        _err(errors, f"{path}[{idx}].scope.labels", "clave vacía")
+                    elif not isinstance(val, (str, int, float, bool)) or not str(val).strip():
+                        _err(
+                            errors,
+                            f"{path}[{idx}].scope.labels.{key}",
+                            "debe ser un valor simple no vacío",
+                        )
+
+        if not prefixes and not regions:
+            _err(
+                errors,
+                f"{path}[{idx}].scope",
+                "requiere al menos `resource_prefixes` o `regions` — `labels` se acepta pero "
+                "todavía no recorta nada (los escaneos aún no traen etiquetas), así que un "
+                "scope de solo labels no delimitaría ningún recurso",
+            )
+
+
 def validate_madre_manifest(
     manifest: Dict[str, Any],
     *,
@@ -448,6 +556,13 @@ def validate_madre_manifest(
     deployment_target = _require_str(errors, manifest, "deployment_target", "deployment_target")
     if deployment_target is None:
         deployment_target = _require_str(errors, manifest, "deploymentTarget", "deployment_target")
+
+    # Opcional · top-level junto a deployment_target: los hechos de "dónde vive
+    # físicamente el agente" van todos juntos (v1.3).
+    _validate_infra_binding(
+        errors,
+        manifest.get("infra_binding") if "infra_binding" in manifest else manifest.get("infraBinding"),
+    )
 
     regulated = manifest.get("regulated_context") or manifest.get("regulatedContext")
     if not isinstance(regulated, list) or not regulated:

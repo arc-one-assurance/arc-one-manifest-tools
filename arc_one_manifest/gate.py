@@ -92,6 +92,18 @@ def _is_increment(prev: str, new: str) -> bool:
     return n > p
 
 
+def _binding_accounts(manifest: Dict[str, Any]) -> set:
+    """Cuentas de nube declaradas en infra_binding (ignora el scope)."""
+    raw = manifest.get("infra_binding") or manifest.get("infraBinding") or []
+    if not isinstance(raw, list):
+        return set()
+    return {
+        str(b.get("account") or "").strip()
+        for b in raw
+        if isinstance(b, dict) and str(b.get("account") or "").strip()
+    }
+
+
 def _suggest_bump_level(repo: Dict[str, Any], registered: Dict[str, Any]) -> str:
     """Heuristic bump suggestion for CI messages / --write-bump."""
     if (repo.get("agent_model") or "") != (registered.get("agent_model") or ""):
@@ -99,6 +111,15 @@ def _suggest_bump_level(repo: Dict[str, Any], registered: Dict[str, Any]) -> str
     for path in _MATERIAL_PATHS:
         if repo.get(path) != registered.get(path):
             return "minor"
+    # Mudanza de infra = cambio de fondo. Cambiar de plataforma (deployment_target) o de
+    # cuenta de nube implica otra credencial y otra frontera de seguridad → minor.
+    # Reacomodar el scope DENTRO de la misma cuenta es un ajuste fino → patch.
+    if (repo.get("deployment_target") or repo.get("deploymentTarget") or "") != (
+        registered.get("deployment_target") or registered.get("deploymentTarget") or ""
+    ):
+        return "minor"
+    if _binding_accounts(repo) != _binding_accounts(registered):
+        return "minor"
     return "patch"
 
 

@@ -1,5 +1,40 @@
 # Evolución del schema del manifest
 
+## `infra_binding` — dónde opera el agente (v1.3)
+
+Bloque **opcional**, **top-level**, junto a `deployment_target`. Declara en qué cuenta de
+nube vive el agente y cuáles de los recursos de esa cuenta son suyos.
+
+```yaml
+manifest_version: "1.3"
+deployment_target: cloud-run/google   # en qué plataforma corre
+
+infra_binding:                        # opcional · lista · dónde vive y qué es suyo
+  - account: acme-prod                # projectId (GCP) / accountId (AWS)
+    scope:
+      resource_prefixes: [nova-]
+      regions: [europe-west1]
+      labels: { app: nova }           # se acepta, todavía NO recorta (ver abajo)
+  - account: "112233445566"           # un agente puede vivir en más de una nube
+    scope:
+      resource_prefixes: [nova-events-]
+```
+
+**Reglas:**
+
+- **Nunca lleva credenciales.** El `account` es una coordenada, no un secreto — la
+  credencial de la nube se carga una sola vez en Arc One, por cuenta y por workspace.
+  Es lo que hace que este bloque sea seguro de commitear al repo.
+- **El proveedor no se declara, se deriva** de la cuenta conectada en Arc One.
+- **`scope` es obligatorio** en cada binding, con al menos `resource_prefixes` o
+  `regions`. Un scope de solo `labels` se rechaza: los escaneos todavía no traen
+  etiquetas, así que no recortaría nada — declaración muerta silenciosa, jamás.
+- **Una cuenta, un binding**: si el agente usa varios grupos de recursos de la misma
+  cuenta, van todos en el mismo `scope`.
+- **Efecto sobre el bump de versión** (lo que sugiere `gate`): cambiar de plataforma
+  (`deployment_target`) o de `account` → **minor** (otra credencial, otra frontera de
+  seguridad). Reacomodar el `scope` dentro de la misma cuenta → **patch**.
+
 ## Hoy (MADRE v1.1)
 
 | Qué puede cambiar el cliente | Dónde |
@@ -81,6 +116,8 @@ Centro de control permite editar **valores** exportados al manifest, no agregar/
 | `manifest_version` en YAML | Tools tag | API sandbox |
 |----------------------------|-----------|-------------|
 | `1.1` | `v1.x` | RegistroManifestV2Body actual |
+| `1.2` | `v1.x` | RegistroManifestV2Body actual |
+| `1.3` | `v1.3.x+` | + `identidad.infraBinding` (opcional) |
 
 Regla para clientes: **`manifest_version` en YAML debe coincidir con la major del tools tag** (`1.1` → `v1.x`).
 
