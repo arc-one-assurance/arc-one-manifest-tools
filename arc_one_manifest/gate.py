@@ -106,7 +106,15 @@ def _binding_accounts(manifest: Dict[str, Any]) -> set:
 
 
 def _suggest_bump_level(repo: Dict[str, Any], registered: Dict[str, Any]) -> str:
-    """Heuristic bump suggestion for CI messages / --write-bump."""
+    """Heuristic bump suggestion for CI messages / --write-bump.
+
+    Compara sobre la forma NORMALIZADA, igual que el hash de drift. Sin esto, un salto de
+    línea final en `purpose` o en el `system_prompt` —que YAML agrega solo con los bloques
+    `|`, o sea en casi todos los manifiestos reales— contaba como cambio material y la
+    sugerencia era `minor` siempre, sin importar qué se hubiera tocado.
+    """
+    repo = _normalize_for_drift(repo)
+    registered = _normalize_for_drift(registered)
     if (repo.get("agent_model") or "") != (registered.get("agent_model") or ""):
         return "major"
     for path in _MATERIAL_PATHS:

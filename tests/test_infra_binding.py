@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import unittest
 
-from arc_one_manifest.gate import _suggest_bump_level
+from arc_one_manifest.gate import _suggest_bump_level  # noqa: F401
 from arc_one_manifest.register import manifest_to_registro_payload
 from arc_one_manifest.validation.madre_v11 import (
     ManifestValidationError,
@@ -237,3 +237,39 @@ class InfraBindingBumpSuggestionTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class GateNormalizationTest(unittest.TestCase):
+    """El salto de línea final de YAML no puede contar como cambio material.
+
+    Los bloques `|` de YAML agregan un `\n` al final; el hash de drift lo normaliza,
+    pero la sugerencia de bump no lo hacía → sugería `minor` siempre, en cualquier
+    manifiesto real, y la regla de infra nunca llegaba a ejecutarse.
+    """
+
+    def test_un_salto_de_linea_final_no_es_cambio_material(self) -> None:
+        registered = {
+            "purpose": "Un proposito cualquiera.",
+            "system_prompt": {"content": "Sos un agente."},
+            "deployment_target": "cloud-run/google",
+            "infra_binding": [{"account": "acme", "scope": {"resource_prefixes": ["nova-"]}}],
+        }
+        repo = {
+            **registered,
+            "purpose": "Un proposito cualquiera.\n",
+            "system_prompt": {"content": "Sos un agente.\n"},
+        }
+        self.assertEqual(_suggest_bump_level(repo, registered), "patch")
+
+    def test_con_el_ruido_de_yaml_la_regla_de_infra_sigue_valiendo(self) -> None:
+        registered = {
+            "purpose": "Un proposito cualquiera.",
+            "deployment_target": "cloud-run/google",
+            "infra_binding": [{"account": "acme", "scope": {"resource_prefixes": ["nova-"]}}],
+        }
+        mudanza = {
+            **registered,
+            "purpose": "Un proposito cualquiera.\n",
+            "infra_binding": [{"account": "otra-cuenta", "scope": {"resource_prefixes": ["nova-"]}}],
+        }
+        self.assertEqual(_suggest_bump_level(mudanza, registered), "minor")
