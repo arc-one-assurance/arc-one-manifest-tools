@@ -13,6 +13,7 @@ import httpx
 import yaml
 
 from arc_one_manifest.material_paths import MATERIAL_PATHS
+from arc_one_manifest.register import ci_provenance_headers
 
 SEMVER_RE = re.compile(r"^(\d+)\.(\d+)\.(\d+)$")
 
@@ -136,6 +137,7 @@ def _fetch_registered_manifest(
         headers["Authorization"] = f"Bearer {token}"
     if debug_sub:
         headers["X-ArcOne-Debug-Sub"] = debug_sub
+    headers.update(ci_provenance_headers())
 
     if not agent_id and nombre_canonico:
         r = httpx.get(

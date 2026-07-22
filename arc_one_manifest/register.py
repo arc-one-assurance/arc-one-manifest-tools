@@ -338,6 +338,25 @@ def _infra_binding_to_payload(manifest: Dict[str, Any]) -> Optional[List[Dict[st
     return bindings or None
 
 
+def ci_provenance_headers() -> Dict[str, str]:
+    """De qué repo y qué corrida viene esta llamada.
+
+    Arc One nunca entra al repo del cliente (push puro, por diseño), así que estos dos
+    headers son la ÚNICA forma de que sepa qué repositorio está reportando y cuándo. Sin
+    esto, un repo que dejó de reportar es indistinguible de uno que nunca se conectó.
+
+    Se leen de las variables que GitHub Actions ya define; nada que el cliente configure.
+    """
+    out: Dict[str, str] = {}
+    repo = os.environ.get("ARC_ONE_REPO") or os.environ.get("GITHUB_REPOSITORY") or ""
+    if repo.strip():
+        out["X-Arc-One-Repo"] = repo.strip()[:256]
+    run = os.environ.get("ARC_ONE_RUN_REF") or os.environ.get("GITHUB_RUN_ID") or ""
+    if run.strip():
+        out["X-Arc-One-Run"] = run.strip()[:256]
+    return out
+
+
 def _madre_manifest_v2_to_payload(manifest: Dict[str, Any]) -> Dict[str, Any]:
     """Map MADRE v1.1/v1.2/v1.3 YAML (export from wizard) → RegistroManifestV2Body JSON."""
     sp = manifest.get("system_prompt") or {}
@@ -513,6 +532,7 @@ def apply(
         headers["Authorization"] = f"Bearer {token}"
     if debug_sub:
         headers["X-ArcOne-Debug-Sub"] = debug_sub
+    headers.update(ci_provenance_headers())
 
     r = httpx.post(url, headers=headers, json=payload, timeout=120.0)
     if not (200 <= r.status_code < 300):
