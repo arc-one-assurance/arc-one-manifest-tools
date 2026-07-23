@@ -236,6 +236,12 @@ def report_audit_to_platform(
         "manifestChangedInPr": _manifest_changed_in_pr(
             repo, report.manifest_path, report.base_ref
         ),
+        # 🔴 El alcance REAL de esta corrida (WS180). `scope` dice la intención (`full` /
+        # `diff`); estos dos dicen qué se abrió de verdad. Del otro lado gobiernan el
+        # reconcile: `full` autoriza a archivar, y archivar lo que no se miró es la mentira
+        # que esta EPIC viene persiguiendo desde la WS172.
+        "filesScanned": report.files_scanned,
+        "excludes": sorted(report.excludes),
     }
 
     url = f"{base_url.rstrip('/')}/api/agentes/{resolved}/manifest-intelligence/audit-result"

@@ -166,11 +166,15 @@ def run_audit(
         targets = changed_files(repo_path, base_ref, include, exclude)
 
     signals: list[CodeSignal] = []
+    files_scanned = 0
     for file_path in targets:
         if file_path.resolve() == manifest_file:
             continue
         rel = file_path.relative_to(repo_path).as_posix()
         lines = read_file_lines(file_path)
+        # Se cuenta lo que efectivamente se ABRIÓ, no lo que se pensaba mirar: es el dato
+        # que del otro lado distingue "no encontré nada" de "no busqué" (WS180).
+        files_scanned += 1
         signals.extend(extract_all_signals(rel, lines))
 
     findings = static_findings(signals, summary, min_confidence=min_confidence)
@@ -221,6 +225,8 @@ def run_audit(
         clean=clean,
         judge_model=judge_model,
         scan_all=scan_all,
+        files_scanned=files_scanned,
+        excludes=tuple(exclude),
     )
 
 

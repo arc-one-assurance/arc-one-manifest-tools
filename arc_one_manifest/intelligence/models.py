@@ -104,6 +104,15 @@ class AuditReport:
     # 🔴 Cuánto miró este audit. ``clean`` sin esto es ambiguo: "no encontré nada" y "no
     # busqué en casi ningún lado" se leen igual. Quien redacte para un humano lo necesita.
     scan_all: bool = False
+    # 🔴 Las otras dos mitades del "cuánto miró" (WS180). `scan_all` dice la INTENCIÓN;
+    # estos dos dicen el HECHO:
+    #   - `files_scanned`: cuántos archivos se abrieron de verdad. **Cero señales tras abrir
+    #     200 archivos es limpieza; cero señales tras abrir CERO archivos es ceguera**, y sin
+    #     este número el servidor no puede distinguirlos — y `full` lo autoriza a archivar.
+    #   - `excludes`: qué recortó el usuario por debajo del alcance. El día que alguien suma
+    #     una exclusión, esa primera corrida archivaría lo que vivía ahí sin haberlo abierto.
+    files_scanned: int = 0
+    excludes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         out = {
@@ -114,6 +123,11 @@ class AuditReport:
             "codeSignals": [s.to_dict() for s in self.code_signals],
             "findings": [f.to_dict() for f in self.findings],
             "clean": self.clean,
+            # El artefacto JSON hereda la misma honestidad que el markdown: sin alcance,
+            # `clean` es una afirmación sin sujeto.
+            "scanAll": self.scan_all,
+            "filesScanned": self.files_scanned,
+            "excludes": list(self.excludes),
         }
         if self.judge_model:
             out["judgeModel"] = self.judge_model

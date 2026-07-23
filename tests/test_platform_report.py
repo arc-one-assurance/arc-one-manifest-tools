@@ -202,17 +202,45 @@ class ComentarioTest(unittest.TestCase):
         self.assertIn("cosa-rara", self.md)
         self.assertIn("sin resolver contra el catálogo", self.md)
 
-    def test_un_diff_avisa_que_no_cierra_nada(self) -> None:
-        md = triangulation_to_pr_comment(
+    def _sin_cerrar(self, motivo: str) -> str:
+        """La forma REAL que manda el servidor desde WS180: `reconcile` trae su `reason`."""
+        return triangulation_to_pr_comment(
             ReportOutcome(
                 delivered=True,
                 triangulation=_triangulation(
-                    scope="diff", reconcile={"allowed": False, "legs": []}
+                    scope="diff",
+                    reconcile={"allowed": False, "legs": [], "reason": motivo},
                 ),
             )
         )
-        self.assertIn("no cierra", md)
+
+    def test_un_diff_avisa_que_no_cierra_nada_CON_EL_MOTIVO_DEL_SERVIDOR(self) -> None:
+        """🔴 El motivo lo manda el que materializa, no lo adivina el CLI (WS180).
+
+        Antes el CLI escribía siempre "este audit miró sólo los archivos del cambio
+        (`diff`)". Ya no es cierto: un `full` también deja de cerrar si no abrió archivos o
+        si el recorte de rutas cambió. Inventar el motivo **en el lugar donde se explica por
+        qué no se cerró nada** es el mismo pecado que la fase persigue, dado vuelta.
+        """
+        md = self._sin_cerrar(
+            "el audit miró sólo los archivos del cambio (`diff`), así que no cierra "
+            "diferencias que ya no se ven — para eso hace falta `--scan-all`"
+        )
+        self.assertIn("No se cerró ninguna diferencia anterior", md)
         self.assertIn("--scan-all", md)
+
+    def test_el_motivo_de_un_FULL_que_no_cierra_tambien_llega_entero(self) -> None:
+        """El contrapeso: el mensaje no puede seguir hablando de `diff` cuando no lo es."""
+        md = self._sin_cerrar(
+            "el recorte de rutas cambió desde la corrida anterior: esta corrida no cierra nada"
+        )
+        self.assertIn("el recorte de rutas cambió", md)
+        self.assertNotIn("--scan-all", md)
+
+    def test_sin_motivo_no_se_inventa_uno_falso(self) -> None:
+        """Si el servidor no lo manda (contrato viejo), se dice lo genérico y verdadero."""
+        md = self._sin_cerrar("")
+        self.assertIn("no tiene alcance para cerrar diferencias anteriores", md)
 
     def test_un_diff_limpio_no_es_un_veredicto_sobre_el_agente(self) -> None:
         """🔴 Un `diff` sin señales leyó los archivos del cambio y nada más.

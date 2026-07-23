@@ -167,12 +167,18 @@ def triangulation_to_pr_comment(outcome: Optional[ReportOutcome]) -> str:
         lines.extend(_leg_lines(leg, scope))
 
     if scope and not reconcile.get("allowed"):
+        # 🔴 El motivo lo manda el servidor (WS180). Acá se afirmaba SIEMPRE que el audit
+        # había sido un `diff` — y eso ya no es cierto: un `full` también deja de cerrar si
+        # no abrió archivos o si el recorte de rutas cambió. Escribir un motivo inventado en
+        # el lugar donde se explica por qué no se cerró nada es el mismo pecado, invertido.
+        motivo = str(reconcile.get("reason") or "").strip()
+        if not motivo:
+            motivo = "este audit no tiene alcance para cerrar diferencias anteriores"
         lines.extend(
             [
                 "",
-                "_Este audit miró sólo los archivos del cambio (`diff`), así que **no cierra** "
-                "diferencias anteriores: informa lo que ve. Para reconciliar el estado "
-                "completo, corré el audit con `--scan-all`._",
+                f"_**No se cerró ninguna diferencia anterior**: {motivo}. El audit informa "
+                "lo que ve; lo ya registrado queda como estaba._",
             ]
         )
 
