@@ -131,6 +131,28 @@ renderiza en `--format pr-comment`.
 ⚠️ **Que la entrega falle no rompe el CI** — pero el motivo va al log y al comment. Nunca
 en silencio.
 
+### `audit --exclude GLOB` (v1.5.0)
+
+Saca rutas del escaneo, además de las que ya se excluyen por default (repetible). Es para
+**código que está en el repo pero no describe lo que el agente hace**: tooling de CI,
+scripts de integración, fixtures.
+
+```bash
+arc-one-manifest audit --scan-all --exclude 'scripts/**' --exclude 'examples/**'
+```
+
+⚠️ **Lo excluido no se mira.** Es un recorte del alcance, no un silenciador de hallazgos:
+si algo real vive ahí, Arc One deja de verlo. El default incluye `scripts/**` a propósito
+—en la mayoría de los repos ahí aparece comportamiento real del agente— y el recorte es
+una decisión del cliente, repo por repo.
+
+### Qué pasa cuando el extractor no puede identificar algo
+
+Un secreto o un servidor MCP que se detecta pero **no se puede nombrar** viaja con un id
+reservado (`runtime-secret`, `custom-mcp`). Arc One no lo presenta como si fuera el nombre
+del recurso: el Hallazgo dice que **no se pudo identificar**, apunta al archivo y la línea
+—que es lo accionable— y va con la **certeza más baja**. Es el hueco reservado al juez LLM.
+
 ---
 
 ## Si Arc One cambia la estructura (futuro)

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import re
 
+from arc_one_manifest.intelligence.extractors.env_names import (
+    UNIDENTIFIED_SECRET_ID,
+    secret_id_from_line,
+)
 from arc_one_manifest.intelligence.models import CodeSignal, Evidence
 
 _BOTO3_CLIENT = re.compile(
@@ -141,12 +145,19 @@ def extract_python_ast_signals(path: str, lines: list[str]) -> list[CodeSignal]:
 
         if "os.environ" in line or "process.env" in line:
             if re.search(r"API_KEY|SECRET|TOKEN", line, re.I):
+                # El nombre está en la línea: guardarlo es lo que vuelve accionable al
+                # Hallazgo. Sólo si no se pudo capturar cae al id de "no sé cuál es".
+                secret_id = secret_id_from_line(line)
                 _append(
                     signals,
                     seen,
                     kind="secret",
-                    inferred_id="runtime-secret",
-                    confidence=0.72,
+                    inferred_id=secret_id or UNIDENTIFIED_SECRET_ID,
+                    # Capturar el nombre sube la certeza de que la señal es real, pero NO
+                    # cruza el piso de 0.85 del bloque estático: un secreto nunca resuelve
+                    # contra el catálogo gobernado, así que afirmarlo fuerte sería
+                    # precisamente lo que la regla de la precisión honesta prohíbe.
+                    confidence=0.8 if secret_id else 0.5,
                     section="secrets_required",
                     path=path,
                     line_no=idx,

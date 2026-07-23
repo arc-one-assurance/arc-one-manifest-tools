@@ -4,6 +4,10 @@ from __future__ import annotations
 
 import re
 
+from arc_one_manifest.intelligence.extractors.env_names import (
+    UNIDENTIFIED_SECRET_ID,
+    secret_id_from_line,
+)
 from arc_one_manifest.intelligence.models import CodeSignal, Evidence
 
 _MCP_PATTERNS = (
@@ -53,15 +57,20 @@ def extract_typescript_signals(path: str, lines: list[str]) -> list[CodeSignal]:
         if "process.env" in line and re.search(r"SECRET|TOKEN|PASSWORD", line, re.I):
             if _KNOWN_LLM_ENV.search(line):
                 continue
-            key = ("secret", "runtime-secret", path)
+            # El nombre está escrito en la línea: guardarlo es lo que vuelve accionable al
+            # Hallazgo. Sólo si no se pudo capturar cae al id de "no sé cuál es".
+            secret_id = secret_id_from_line(line) or UNIDENTIFIED_SECRET_ID
+            key = ("secret", secret_id, path)
             if key in seen:
                 continue
             seen.add(key)
             signals.append(
                 CodeSignal(
                     kind="secret",
-                    inferred_id="runtime-secret",
-                    confidence=0.72,
+                    inferred_id=secret_id,
+                    # Ver la nota gemela en `python_ast`: la certeza sube, pero no cruza el
+                    # piso de 0.85 del bloque estático.
+                    confidence=0.8 if secret_id != UNIDENTIFIED_SECRET_ID else 0.5,
                     evidence=Evidence(file=path, line=idx, snippet=line[:160]),
                     manifest_section="secrets_required",
                 )

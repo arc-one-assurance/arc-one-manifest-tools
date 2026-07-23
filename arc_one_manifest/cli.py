@@ -9,6 +9,7 @@ from pathlib import Path
 
 from arc_one_manifest.gate import validate_gate, write_bump
 from arc_one_manifest.intelligence.audit import report_to_json, report_to_markdown, run_audit
+from arc_one_manifest.intelligence.git_diff import DEFAULT_EXCLUDE
 from arc_one_manifest.intelligence.generate import (
     report_to_json as generation_report_to_json,
     run_generate,
@@ -109,6 +110,7 @@ def _cmd_audit(args: argparse.Namespace) -> None:
             static_only=static_only,
             min_confidence=args.min_confidence,
             scan_all=args.scan_all,
+            exclude=DEFAULT_EXCLUDE + tuple(args.exclude or ()),
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
@@ -144,7 +146,7 @@ def _cmd_audit(args: argparse.Namespace) -> None:
     if args.format == "json":
         payload = report_to_json(report)
     elif args.format == "pr-comment":
-        payload = report_to_pr_comment(report) + triangulation_to_pr_comment(outcome)
+        payload = report_to_pr_comment(report, outcome) + triangulation_to_pr_comment(outcome)
     else:
         payload = report_to_markdown(report) + triangulation_to_pr_comment(outcome)
 
@@ -240,6 +242,17 @@ def main(argv: list[str] | None = None) -> None:
     p_audit.add_argument("--repo", default=".", help="Repo root to scan")
     p_audit.add_argument("--base", default="origin/main", help="Git base ref for diff")
     p_audit.add_argument("--scan-all", action="store_true", help="Scan all scoped files, not just git diff")
+    p_audit.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help=(
+            "Ruta a excluir del escaneo, además de las excluidas por default (repetible). "
+            "Para código que no es del agente: tooling de CI, scripts de integración, "
+            "fixtures. Lo excluido NO se mira — usalo con criterio."
+        ),
+    )
     p_audit.add_argument(
         "--static-only",
         action="store_true",

@@ -25,6 +25,14 @@ _LEG_TITLE = {
 _CODE_DERIVED_LEGS = frozenset({"codigo_vs_manifiesto_repo", "codigo_vs_arc_one"})
 
 
+def _triangulation_found_differences(outcome: Optional[ReportOutcome]) -> bool:
+    """¿Arc One registró diferencias en esta corrida? Sólo cuenta lo entregado."""
+    if outcome is None or not outcome.delivered:
+        return False
+    legs = (outcome.triangulation or {}).get("legs") or []
+    return any(int(leg.get("count") or 0) > 0 for leg in legs if isinstance(leg, dict))
+
+
 def _format_evidence(finding: AuditFinding) -> str:
     if not finding.evidence:
         return "—"
@@ -34,8 +42,13 @@ def _format_evidence(finding: AuditFinding) -> str:
     return "—"
 
 
-def report_to_pr_comment(report: AuditReport) -> str:
-    """Markdown para comentario de PR (Manifest Drift Guard)."""
+def report_to_pr_comment(report: AuditReport, outcome: Optional[ReportOutcome] = None) -> str:
+    """Markdown para comentario de PR (Manifest Drift Guard).
+
+    ``outcome`` es lo que Arc One **efectivamente registró**. Se pasa para una sola cosa,
+    y es importante: este bloque no puede declarar "limpio" cuando la triangulación —que
+    es la que materializa Hallazgos— encontró diferencias. Ver la nota abajo.
+    """
     lines = [
         "## ⚠️ Manifest Drift Guard",
         "",
@@ -47,12 +60,21 @@ def report_to_pr_comment(report: AuditReport) -> str:
     ]
 
     if report.clean:
-        # 🔴 "Limpio" es una afirmación, y sólo se puede hacer sobre lo que se miró. Un
-        # audit de `diff` leyó los archivos del cambio; el resto del repositorio quedó sin
-        # abrir. Decir ✅ ahí convierte *no haber buscado* en *no haber nada*.
-        if report.scan_all:
+        # 🔴 Este bloque aplica un piso de confianza (`--min-confidence`, 0.85) que la
+        # triangulación del servidor NO aplica: allá la confianza elige severidad, no
+        # filtra. Con las mismas señales, el bloque puede quedar vacío mientras Arc One
+        # registra Hallazgos — y el comment terminaba diciendo "✅ sin drift" arriba y
+        # "🔎 2 diferencias" catorce líneas abajo. El que manda es el que materializa.
+        if _triangulation_found_differences(outcome):
+            lines.append(
+                "⚪ Sin drift **por encima del umbral de este chequeo**, pero Arc One sí "
+                "registró diferencias — están detalladas abajo."
+            )
+        elif report.scan_all:
             lines.append("✅ Sin drift detectado entre código y manifest.")
         else:
+            # "Limpio" es una afirmación, y sólo se puede hacer sobre lo que se miró. Un
+            # audit de `diff` leyó los archivos del cambio; el resto quedó sin abrir.
             lines.append(
                 "⚪ Sin drift en los archivos de este cambio. El resto del repositorio no "
                 "se miró — para revisarlo entero, corré el audit con `--scan-all`."

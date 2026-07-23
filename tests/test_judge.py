@@ -125,6 +125,46 @@ class ReporterTest(unittest.TestCase):
         md = report_to_pr_comment(report)
         self.assertIn("✅ Sin drift detectado entre código y manifest", md)
 
+    def test_el_bloque_estatico_no_contradice_a_arc_one(self) -> None:
+        """🔴 Este bloque filtra por confianza (0.85); la triangulación no filtra nada.
+
+        Con las mismas señales, el bloque puede quedar vacío mientras Arc One materializa
+        Hallazgos — y el comment decía "✅ Sin drift" arriba y "🔎 2 diferencias" abajo.
+        El que manda es el que materializa.
+        """
+        from arc_one_manifest.intelligence.platform_report import ReportOutcome
+
+        fixtures = Path(__file__).parent / "fixtures" / "audit_scenarios" / "clean-banking"
+        report = run_audit(
+            fixtures / "arc-one.agent.yaml", repo=fixtures, scan_all=True, static_only=True
+        )
+        self.assertTrue(report.clean)
+
+        outcome = ReportOutcome(
+            delivered=True,
+            report_id="mar_x",
+            triangulation={
+                "legs": [
+                    {"leg": "codigo_vs_arc_one", "available": True, "count": 2, "findings": []}
+                ]
+            },
+        )
+        md = report_to_pr_comment(report, outcome)
+        self.assertNotIn("✅", md)
+        self.assertIn("Arc One sí registró diferencias", md)
+
+        # El contrapeso: sin diferencias del otro lado, el ✅ vuelve.
+        limpio = ReportOutcome(
+            delivered=True,
+            report_id="mar_y",
+            triangulation={
+                "legs": [
+                    {"leg": "codigo_vs_arc_one", "available": True, "count": 0, "findings": []}
+                ]
+            },
+        )
+        self.assertIn("✅ Sin drift detectado", report_to_pr_comment(report, limpio))
+
     def test_un_diff_limpio_no_afirma_sobre_el_repo_entero(self) -> None:
         """🔴 ``clean`` con alcance `diff` significa "no vi nada en lo que miré".
 
