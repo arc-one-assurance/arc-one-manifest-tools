@@ -101,6 +101,9 @@ class AuditReport:
     findings: list[AuditFinding]
     clean: bool
     judge_model: str | None = None
+    # 🔴 Cuánto miró este audit. ``clean`` sin esto es ambiguo: "no encontré nada" y "no
+    # busqué en casi ningún lado" se leen igual. Quien redacte para un humano lo necesita.
+    scan_all: bool = False
 
     def to_dict(self) -> dict[str, Any]:
         out = {

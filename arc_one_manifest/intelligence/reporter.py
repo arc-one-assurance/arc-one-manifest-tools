@@ -18,6 +18,12 @@ _LEG_TITLE = {
     "codigo_vs_arc_one": "Lo que Arc One gobierna no es lo que el agente hace",
 }
 
+# 🔴 Las patas que parten de SEÑAL DEL CÓDIGO. Un audit de alcance `diff` sólo leyó los
+# archivos del cambio, así que "cero diferencias" en estas dos NO es un veredicto sobre el
+# agente: es el resultado de no haber mirado. La pata 2 no está acá porque compara dos
+# documentos declarados enteros — es independiente del alcance y su ✅ sí vale.
+_CODE_DERIVED_LEGS = frozenset({"codigo_vs_manifiesto_repo", "codigo_vs_arc_one"})
+
 
 def _format_evidence(finding: AuditFinding) -> str:
     if not finding.evidence:
@@ -41,7 +47,16 @@ def report_to_pr_comment(report: AuditReport) -> str:
     ]
 
     if report.clean:
-        lines.append("✅ Sin drift detectado entre código y manifest.")
+        # 🔴 "Limpio" es una afirmación, y sólo se puede hacer sobre lo que se miró. Un
+        # audit de `diff` leyó los archivos del cambio; el resto del repositorio quedó sin
+        # abrir. Decir ✅ ahí convierte *no haber buscado* en *no haber nada*.
+        if report.scan_all:
+            lines.append("✅ Sin drift detectado entre código y manifest.")
+        else:
+            lines.append(
+                "⚪ Sin drift en los archivos de este cambio. El resto del repositorio no "
+                "se miró — para revisarlo entero, corré el audit con `--scan-all`."
+            )
         return "\n".join(lines)
 
     lines.extend(
@@ -67,7 +82,7 @@ def report_to_pr_comment(report: AuditReport) -> str:
     return "\n".join(lines)
 
 
-def _leg_lines(leg: Dict[str, Any]) -> list[str]:
+def _leg_lines(leg: Dict[str, Any], scope: str = "") -> list[str]:
     leg_id = str(leg.get("leg") or "")
     titulo = _LEG_TITLE.get(leg_id, leg_id)
 
@@ -78,6 +93,14 @@ def _leg_lines(leg: Dict[str, Any]) -> list[str]:
 
     filas = leg.get("findings") or []
     if not filas:
+        # 🔴 Mismo principio que arriba, un nivel más adentro: un `diff` limpio en una pata
+        # que parte del código no puede pintarse como el ✅ de un `full`. Lo que no se miró
+        # no es lo que está bien.
+        if scope == "diff" and leg_id in _CODE_DERIVED_LEGS:
+            return [
+                f"- ⚪ **{titulo}** — sin diferencias **en los archivos de este cambio**; "
+                "el resto del repositorio no se miró"
+            ]
         return [f"- ✅ **{titulo}** — sin diferencias"]
 
     out = [f"- 🔎 **{titulo}** — {len(filas)} diferencia(s):"]
@@ -139,7 +162,7 @@ def triangulation_to_pr_comment(outcome: Optional[ReportOutcome]) -> str:
 
     lines.append("")
     for leg in legs:
-        lines.extend(_leg_lines(leg))
+        lines.extend(_leg_lines(leg, scope))
 
     if scope and not reconcile.get("allowed"):
         lines.extend(

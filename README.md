@@ -97,8 +97,10 @@ Dos cosas que conviene saber:
   detecta y avisa, no frena merges. Pero nunca en silencio: el motivo aparece en el log y en
   el comment del PR, porque "todo en orden" y "no pude reportar" no pueden verse igual.
 
-El repositorio se resuelve a su agente por `--agent-id` (o `ARC_ONE_AGENT_ID`) y, si no,
-por el `nombre_canonico` del Manifiesto.
+El repositorio se resuelve a su agente por `--agent-id` (o `ARC_ONE_AGENT_ID`); si no, por
+el `agent_id` que el Manifiesto exportado de Arc One ya trae; y si tampoco, por el **nombre
+canónico derivado de `name`** — la misma regla que aplica el `gate` y la misma que usa Arc
+One al registrar. El Manifiesto no declara el canónico: se deriva.
 
 ---
 

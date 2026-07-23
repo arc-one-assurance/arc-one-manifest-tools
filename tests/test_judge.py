@@ -123,7 +123,28 @@ class ReporterTest(unittest.TestCase):
             static_only=True,
         )
         md = report_to_pr_comment(report)
-        self.assertIn("Sin drift", md)
+        self.assertIn("✅ Sin drift detectado entre código y manifest", md)
+
+    def test_un_diff_limpio_no_afirma_sobre_el_repo_entero(self) -> None:
+        """🔴 ``clean`` con alcance `diff` significa "no vi nada en lo que miré".
+
+        El mismo fixture, la misma ausencia de drift: lo único que cambia es cuánto se
+        abrió. Un ✅ acá diría que el repositorio está bien cuando lo que pasó es que casi
+        no se leyó — el silencio que la Fase 2 vino a cerrar, en la primera línea que el
+        cliente lee del comment.
+        """
+        fixtures = Path(__file__).parent / "fixtures" / "audit_scenarios" / "clean-banking"
+        report = run_audit(
+            fixtures / "arc-one.agent.yaml",
+            repo=fixtures,
+            scan_all=False,
+            static_only=True,
+        )
+        self.assertTrue(report.clean)
+        md = report_to_pr_comment(report)
+        self.assertNotIn("✅", md)
+        self.assertIn("Sin drift en los archivos de este cambio", md)
+        self.assertIn("--scan-all", md)
 
     def test_pr_comment_with_findings(self) -> None:
         summary = summarize_manifest(MINIMAL_MANIFEST)

@@ -214,6 +214,54 @@ class ComentarioTest(unittest.TestCase):
         self.assertIn("no cierra", md)
         self.assertIn("--scan-all", md)
 
+    def test_un_diff_limpio_no_es_un_veredicto_sobre_el_agente(self) -> None:
+        """🔴 Un `diff` sin señales leyó los archivos del cambio y nada más.
+
+        Pintar ✅ "sin diferencias" en las patas que parten del código convierte *no haber
+        mirado* en *estar bien* — el mismo silencio que la fase vino a cerrar, un nivel
+        más adentro. La pata 2 compara dos documentos declarados enteros: ésa sí puede
+        cerrar en verde con cualquier alcance.
+        """
+        md = triangulation_to_pr_comment(
+            ReportOutcome(
+                delivered=True,
+                triangulation=_triangulation(
+                    scope="diff",
+                    signalsEvaluated=0,
+                    reconcile={"allowed": False, "legs": []},
+                    legs=[
+                        {"leg": "codigo_vs_manifiesto_repo", "available": True, "findings": []},
+                        {"leg": "manifiesto_repo_vs_arc_one", "available": True, "findings": []},
+                        {"leg": "codigo_vs_arc_one", "available": True, "findings": []},
+                    ],
+                ),
+            )
+        )
+        self.assertEqual(md.count("en los archivos de este cambio"), 2)
+        self.assertIn("el resto del repositorio no se miró", md)
+        # La pata 2 no depende del alcance: es la única que conserva su ✅.
+        self.assertEqual(md.count("✅"), 1)
+        self.assertIn("✅ **Tu Manifiesto cambió y no se registró en Arc One**", md)
+
+    def test_el_mismo_estado_con_full_si_cierra_en_verde(self) -> None:
+        """El contrapeso: sin el `diff`, las tres patas vuelven a poder decir ✅."""
+        md = triangulation_to_pr_comment(
+            ReportOutcome(
+                delivered=True,
+                triangulation=_triangulation(
+                    scope="full",
+                    signalsEvaluated=0,
+                    legs=[
+                        {"leg": "codigo_vs_manifiesto_repo", "available": True, "findings": []},
+                        {"leg": "manifiesto_repo_vs_arc_one", "available": True, "findings": []},
+                        {"leg": "codigo_vs_arc_one", "available": True, "findings": []},
+                    ],
+                ),
+            )
+        )
+        self.assertEqual(md.count("✅"), 3)
+        self.assertNotIn("en los archivos de este cambio", md)
+
     def test_sin_catalogo_gobernado_se_avisa(self) -> None:
         md = triangulation_to_pr_comment(
             ReportOutcome(
@@ -238,7 +286,14 @@ class ResolucionDeAgenteTest(unittest.TestCase):
         self.assertEqual(aid, "agt_explicito")
         self.assertIsNone(motivo)
 
-    def test_se_resuelve_por_nombre_canonico(self) -> None:
+    def test_se_resuelve_por_el_nombre_del_manifiesto(self) -> None:
+        """🔴 El insumo es ``name`` — la clave que un Manifiesto MADRE realmente tiene.
+
+        Hasta WS179 esta función buscaba una clave ``nombre_canonico`` en el YAML, y el
+        test se la pasaba: fixture y código compartían una forma que **ningún Manifiesto
+        real produce**, así que el camino nunca se probó de verdad. Contra un repo sin
+        ``agent_id`` en el YAML (audit-lab) el reporte no salía nunca.
+        """
         with patch("arc_one_manifest.intelligence.platform_report.httpx.get") as get:
             get.return_value = _response(
                 200, [{"id": "agt_nova", "nombreCanonico": "nova-lumen"}]
@@ -247,10 +302,18 @@ class ResolucionDeAgenteTest(unittest.TestCase):
                 base_url=BASE,
                 token=TOKEN,
                 debug_sub="",
-                manifest={"nombre_canonico": "nova-lumen"},
+                manifest={"name": "Nova Lumen"},
             )
         self.assertEqual(aid, "agt_nova")
         self.assertIsNone(motivo)
+
+    def test_el_canonico_es_el_mismo_que_deriva_el_gate(self) -> None:
+        """La regla vive en un solo lugar: si diverge, el reporte apunta a otro agente."""
+        from arc_one_manifest.canonical import canonical_name
+        from arc_one_manifest.gate import _canonical_name
+
+        for nombre in ("Nova Lumen", "Audit Lab Agent", "Agente Ñandú  v2", "  Núñez-AI  "):
+            self.assertEqual(canonical_name({"name": nombre}), _canonical_name({"name": nombre}))
 
     def test_sin_pistas_lo_dice_en_cristiano(self) -> None:
         aid, motivo = resolve_agent_id(base_url=BASE, token=TOKEN, debug_sub="", manifest={})
@@ -264,7 +327,7 @@ class ResolucionDeAgenteTest(unittest.TestCase):
                 base_url=BASE,
                 token=TOKEN,
                 debug_sub="",
-                manifest={"nombre_canonico": "nova-lumen"},
+                manifest={"name": "Nova Lumen"},
             )
         self.assertIsNone(aid)
         self.assertIn("no está registrado", motivo or "")

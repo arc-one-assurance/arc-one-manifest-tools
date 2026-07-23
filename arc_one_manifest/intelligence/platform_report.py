@@ -30,6 +30,7 @@ from typing import Any, Dict, Optional
 
 import httpx
 
+from arc_one_manifest.canonical import canonical_name
 from arc_one_manifest.intelligence.models import AuditReport
 from arc_one_manifest.register import ci_provenance_headers
 
@@ -141,8 +142,13 @@ def resolve_agent_id(
     """``(agent_id, motivo_del_fallo)``. **Nunca levanta**: acá un fallo no rompe el CI.
 
     Orden: lo explícito → la variable de entorno → el ``agent_id`` del manifiesto exportado
-    → resolver por ``nombre_canonico`` contra ``/api/agentes``. Es el mismo orden del
+    → resolver por nombre canónico contra ``/api/agentes``. Es el mismo orden del
     ``gate``, sin su ``SystemExit``: el gate **es** una compuerta, esto es un reporte.
+
+    🔴 El canónico se **deriva de ``name``** con la regla compartida de
+    ``arc_one_manifest.canonical`` — la misma que usa el ``gate`` y la misma que el
+    platform aplica al registrar. Buscarlo como clave ``nombre_canonico`` del YAML
+    (como hacía esta función) no encuentra nada nunca: el Manifiesto MADRE no la tiene.
     """
     candidate = (explicit or os.environ.get("ARC_ONE_AGENT_ID", "")).strip()
     if candidate:
@@ -153,12 +159,11 @@ def resolve_agent_id(
     if from_manifest:
         return from_manifest, None
 
-    canonico = str(manifest.get("nombre_canonico") or manifest.get("nombreCanonico") or "").strip()
+    canonico = canonical_name(manifest)
     if not canonico:
         return None, (
-            "no se pudo determinar a qué agente pertenece este repositorio: pasá "
-            "`--agent-id` (o `ARC_ONE_AGENT_ID`), o declará `nombre_canonico` en el "
-            "Manifiesto."
+            "no se pudo determinar a qué agente pertenece este repositorio: el "
+            "Manifiesto no declara `name`. Pasá `--agent-id` (o `ARC_ONE_AGENT_ID`)."
         )
 
     try:

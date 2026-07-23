@@ -219,6 +219,7 @@ def run_audit(
         findings=findings,
         clean=clean,
         judge_model=judge_model,
+        scan_all=scan_all,
     )
 
 
