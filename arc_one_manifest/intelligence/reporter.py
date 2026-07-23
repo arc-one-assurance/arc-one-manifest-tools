@@ -6,10 +6,7 @@ from typing import Any, Dict, Optional
 
 from arc_one_manifest.intelligence.models import AuditFinding, AuditReport
 from arc_one_manifest.intelligence.platform_report import ReportOutcome
-from arc_one_manifest.intelligence.verdict import (
-    clean_verdict_line,
-    triangulation_found_differences as _triangulation_found_differences,
-)
+from arc_one_manifest.intelligence.verdict import clean_verdict_line
 
 _SEVERITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 
