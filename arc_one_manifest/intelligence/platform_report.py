@@ -230,7 +230,9 @@ def report_audit_to_platform(
 
     body = {
         "manifestSummary": report.manifest_summary.to_dict(),
-        "codeSignals": [s.to_dict() for s in report.code_signals],
+        # 🔴 `to_wire_dict`, no `to_dict`: la evidencia que cruza el cable es archivo:línea,
+        # nunca el código fuente. Ver `Evidence.to_wire_dict` (WS180).
+        "codeSignals": [s.to_wire_dict() for s in report.code_signals],
         "scope": scope,
         "commitSha": _commit_sha(repo),
         "manifestChangedInPr": _manifest_changed_in_pr(
