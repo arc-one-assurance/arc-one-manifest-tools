@@ -1,0 +1,130 @@
+{
+  "_readme": [
+    "FIXTURE COMPARTIDO ENTRE DOS REPOS. Byte-identico en:",
+    "  arc-one-platform/apps/api/tests/fixtures/manifest_summary_parity.json",
+    "  arc-one-manifest-tools/tests/fixtures/manifest_summary_parity.json",
+    "Es la red del riesgo tecnico de la Fase 2: el resumen del manifiesto se calcula en",
+    "los dos lados (CLI summarize_manifest / platform summarize_manifest_dict) y la pata 2",
+    "de la triangulacion los compara entre si. Si divergen, Arc One reporta drift donde no",
+    "lo hay -- y nadie se entera, porque cada repo pasa sus propios tests.",
+    "SI TOCAS ESTE ARCHIVO: tocá las DOS copias y actualizá el checksum en los dos tests."
+  ],
+  "cases": [
+    {
+      "name": "manifiesto completo en snake_case (el export del platform)",
+      "manifest": {
+        "agent_id": "agt_nova",
+        "agent_model": "anthropic/claude-sonnet-4-6",
+        "data_stores": [
+          { "asset_id": "aws-s3", "asset_name": "AWS S3", "relation_type": ["READ"] },
+          { "asset_id": "redis", "relation_type": ["WRITE"] }
+        ],
+        "integration_endpoints": [
+          { "asset_id": "core-banking-postgres", "relation_type": ["QUERY"] }
+        ],
+        "secrets_required": [
+          { "identifier": "NOVA_DB_SECRET" },
+          { "identifier": "aws-kms-secrets-manager" }
+        ],
+        "mcp_servers": [
+          { "mcp_id": "core-banking-mcp", "mcp_name": "Core Banking MCP" }
+        ],
+        "knowledge_bases": [{ "identifier": "policies-kb", "provider": "pinecone" }]
+      },
+      "expected": {
+        "agentModel": "anthropic/claude-sonnet-4-6",
+        "dataStores": ["aws-s3", "redis"],
+        "integrationEndpoints": ["core-banking-postgres"],
+        "secretsRequired": ["NOVA_DB_SECRET", "aws-kms-secrets-manager"],
+        "mcpServers": ["core-banking-mcp"],
+        "knowledgeBases": ["policies-kb"]
+      }
+    },
+    {
+      "name": "el mismo manifiesto en camelCase (la otra puerta de entrada)",
+      "manifest": {
+        "agentModel": "openai/gpt-4o",
+        "dataStores": [{ "assetId": "pinecone" }],
+        "integrationEndpoints": [{ "id": "stripe-api" }],
+        "secretsRequired": [{ "id": "STRIPE_KEY" }],
+        "mcpServers": [{ "mcpCatalogId": "payments-mcp" }],
+        "knowledgeBases": [{ "id": "faq-kb" }]
+      },
+      "expected": {
+        "agentModel": "openai/gpt-4o",
+        "dataStores": ["pinecone"],
+        "integrationEndpoints": ["stripe-api"],
+        "secretsRequired": ["STRIPE_KEY"],
+        "mcpServers": ["payments-mcp"],
+        "knowledgeBases": ["faq-kb"]
+      }
+    },
+    {
+      "name": "manifiesto minimo: sin recursos declarados",
+      "manifest": { "agent_id": "agt_pelado", "purpose": "nada que declarar" },
+      "expected": {
+        "agentModel": null,
+        "dataStores": [],
+        "integrationEndpoints": [],
+        "secretsRequired": [],
+        "mcpServers": [],
+        "knowledgeBases": []
+      }
+    },
+    {
+      "name": "basura en las filas: no revienta y no inventa",
+      "manifest": {
+        "agent_model": "   ",
+        "data_stores": ["esto-no-es-un-dict", null, { "asset_id": "   " }, { "otra": "cosa" }],
+        "integration_endpoints": "tampoco-es-una-lista",
+        "secrets_required": [{ "identifier": "" }, {}],
+        "mcp_servers": [{ "mcp_id": null }],
+        "knowledge_bases": null
+      },
+      "expected": {
+        "agentModel": null,
+        "dataStores": [],
+        "integrationEndpoints": [],
+        "secretsRequired": [],
+        "mcpServers": [],
+        "knowledgeBases": []
+      }
+    },
+    {
+      "name": "precedencia de claves: la primera que exista gana, no se suman",
+      "manifest": {
+        "agent_model": "  anthropic/claude-opus-4-8  ",
+        "secrets_required": [{ "identifier": "EL_BUENO", "id": "el-otro", "name": "y-el-otro" }],
+        "mcp_servers": [{ "mcp_id": "gana-mcp-id", "mcpId": "pierde", "id": "pierde-tambien" }],
+        "knowledge_bases": [{ "identifier": "gana-identifier", "id": "pierde" }]
+      },
+      "expected": {
+        "agentModel": "anthropic/claude-opus-4-8",
+        "dataStores": [],
+        "integrationEndpoints": [],
+        "secretsRequired": ["EL_BUENO"],
+        "mcpServers": ["gana-mcp-id"],
+        "knowledgeBases": ["gana-identifier"]
+      }
+    },
+    {
+      "name": "duplicados y orden: el resumen es un conjunto ordenado",
+      "manifest": {
+        "data_stores": [
+          { "asset_id": "redis" },
+          { "asset_id": "aws-s3" },
+          { "asset_id": "redis" },
+          { "asset_id": "Aws-S3" }
+        ]
+      },
+      "expected": {
+        "agentModel": null,
+        "dataStores": ["Aws-S3", "aws-s3", "redis"],
+        "integrationEndpoints": [],
+        "secretsRequired": [],
+        "mcpServers": [],
+        "knowledgeBases": []
+      }
+    }
+  ]
+}
