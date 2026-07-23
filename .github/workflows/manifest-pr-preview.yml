@@ -81,6 +81,13 @@ jobs:
 
       - name: Manifest Intelligence — audit código ↔ manifest
         if: inputs.enable_audit
+        # 🔴 WS180. `enable_audit` pasó a `true` por default (Card 6), pero `tools_ref` sigue
+        # con default `v1.0.0`, y ese tag **no tiene el subcomando `audit`** (aparece en
+        # v1.2.1). Un cliente que actualice el reusable sin pasar `tools_ref` —que es como lo
+        # muestra el README— recibía `invalid choice: 'audit'`, exit 2, job rojo y PR
+        # bloqueado. Un sistema declarativo que "avisa y no frena" frenando por una feature
+        # nueva. El gemelo `manifest-register.yml` ya lo tenía.
+        continue-on-error: true
         env:
           # 🔴 Tapón 3 (Card 6): este step exportaba SÓLO la LLM key, así que
           # `_platform_creds()` volvía vacío y el juez hosteado nunca se activaba — caía a
@@ -90,6 +97,13 @@ jobs:
           ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
           ARC_ONE_LLM_API_KEY: ${{ secrets.ARC_ONE_LLM_API_KEY }}
         run: |
+          # El guard de compatibilidad se pregunta por CAPACIDAD, no por número de versión —
+          # pero antes sólo cubría `--report-to-platform`. Si el pin es tan viejo que no
+          # tiene ni el subcomando, no hay nada que auditar: se dice y se sale limpio.
+          if ! arc-one-manifest audit --help >/dev/null 2>&1; then
+            echo "::warning::El CLI pineado (tools_ref=${{ inputs.tools_ref }}) no tiene el subcomando 'audit' (requiere v1.2.1+). El audit no corre. Pasá un tools_ref más nuevo para activar Manifest Intelligence."
+            exit 0
+          fi
           BASE="origin/${{ github.base_ref }}"
           SCOPE_FLAG=""
           REPORT_FLAG=""

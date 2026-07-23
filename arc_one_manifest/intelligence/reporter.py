@@ -6,6 +6,10 @@ from typing import Any, Dict, Optional
 
 from arc_one_manifest.intelligence.models import AuditFinding, AuditReport
 from arc_one_manifest.intelligence.platform_report import ReportOutcome
+from arc_one_manifest.intelligence.verdict import (
+    clean_verdict_line,
+    triangulation_found_differences as _triangulation_found_differences,
+)
 
 _SEVERITY_EMOJI = {"high": "🔴", "medium": "🟡", "low": "🟢"}
 
@@ -23,14 +27,6 @@ _LEG_TITLE = {
 # agente: es el resultado de no haber mirado. La pata 2 no está acá porque compara dos
 # documentos declarados enteros — es independiente del alcance y su ✅ sí vale.
 _CODE_DERIVED_LEGS = frozenset({"codigo_vs_manifiesto_repo", "codigo_vs_arc_one"})
-
-
-def _triangulation_found_differences(outcome: Optional[ReportOutcome]) -> bool:
-    """¿Arc One registró diferencias en esta corrida? Sólo cuenta lo entregado."""
-    if outcome is None or not outcome.delivered:
-        return False
-    legs = (outcome.triangulation or {}).get("legs") or []
-    return any(int(leg.get("count") or 0) > 0 for leg in legs if isinstance(leg, dict))
 
 
 def _format_evidence(finding: AuditFinding) -> str:
@@ -60,25 +56,9 @@ def report_to_pr_comment(report: AuditReport, outcome: Optional[ReportOutcome] =
     ]
 
     if report.clean:
-        # 🔴 Este bloque aplica un piso de confianza (`--min-confidence`, 0.85) que la
-        # triangulación del servidor NO aplica: allá la confianza elige severidad, no
-        # filtra. Con las mismas señales, el bloque puede quedar vacío mientras Arc One
-        # registra Hallazgos — y el comment terminaba diciendo "✅ sin drift" arriba y
-        # "🔎 2 diferencias" catorce líneas abajo. El que manda es el que materializa.
-        if _triangulation_found_differences(outcome):
-            lines.append(
-                "⚪ Sin drift **por encima del umbral de este chequeo**, pero Arc One sí "
-                "registró diferencias — están detalladas abajo."
-            )
-        elif report.scan_all:
-            lines.append("✅ Sin drift detectado entre código y manifest.")
-        else:
-            # "Limpio" es una afirmación, y sólo se puede hacer sobre lo que se miró. Un
-            # audit de `diff` leyó los archivos del cambio; el resto quedó sin abrir.
-            lines.append(
-                "⚪ Sin drift en los archivos de este cambio. El resto del repositorio no "
-                "se miró — para revisarlo entero, corré el audit con `--scan-all`."
-            )
+        # La regla vive en `verdict.py`, compartida con el `--format markdown` (WS180):
+        # el veredicto no puede depender del formato de salida.
+        lines.append(clean_verdict_line(report, outcome))
         return "\n".join(lines)
 
     lines.extend(

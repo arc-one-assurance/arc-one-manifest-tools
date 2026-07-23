@@ -148,7 +148,7 @@ def _cmd_audit(args: argparse.Namespace) -> None:
     elif args.format == "pr-comment":
         payload = report_to_pr_comment(report, outcome) + triangulation_to_pr_comment(outcome)
     else:
-        payload = report_to_markdown(report) + triangulation_to_pr_comment(outcome)
+        payload = report_to_markdown(report, outcome) + triangulation_to_pr_comment(outcome)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
