@@ -9,13 +9,21 @@ from pathlib import Path
 
 from arc_one_manifest.gate import validate_gate, write_bump
 from arc_one_manifest.intelligence.audit import report_to_json, report_to_markdown, run_audit
+from arc_one_manifest.intelligence.git_diff import DEFAULT_EXCLUDE
 from arc_one_manifest.intelligence.generate import (
     report_to_json as generation_report_to_json,
     run_generate,
     write_generate_outputs,
 )
 from arc_one_manifest.intelligence.generate import _manifest_yaml_with_header
-from arc_one_manifest.intelligence.reporter import report_to_pr_comment
+from arc_one_manifest.intelligence.platform_report import (
+    report_audit_to_platform,
+    resolve_scope,
+)
+from arc_one_manifest.intelligence.reporter import (
+    report_to_pr_comment,
+    triangulation_to_pr_comment,
+)
 from arc_one_manifest.loader import load_manifest
 from arc_one_manifest.register import apply
 from arc_one_manifest.validation import ManifestValidationError, validate_madre_manifest
@@ -73,6 +81,18 @@ def _cmd_suggest_bump(args: argparse.Namespace) -> None:
     )
 
 
+def _safe_manifest(path: str) -> dict:
+    """El Manifiesto del repo, sólo para resolver a qué agente pertenece.
+
+    Si no se puede leer, se devuelve vacío: el reporte cae al ``--agent-id`` explícito y,
+    si tampoco lo hay, avisa. Un YAML ilegible no puede tumbar un audit que ya corrió.
+    """
+    try:
+        return load_manifest(path) or {}
+    except Exception:
+        return {}
+
+
 def _cmd_audit(args: argparse.Namespace) -> None:
     static_only = args.static_only
     has_platform = bool(
@@ -90,17 +110,45 @@ def _cmd_audit(args: argparse.Namespace) -> None:
             static_only=static_only,
             min_confidence=args.min_confidence,
             scan_all=args.scan_all,
+            exclude=DEFAULT_EXCLUDE + tuple(args.exclude or ()),
         )
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         raise SystemExit(2) from exc
 
+    # ── Reportar a Arc One (Card 5) ────────────────────────────────────────────────────
+    # El audit deja de morir acá: el resultado va al endpoint con estado y vuelve la
+    # triangulación. Si no se puede entregar, se dice fuerte y **el CI sigue** — Arc One
+    # detecta y avisa, no frena (decisión 4 de §7). Pero jamás en silencio.
+    outcome = None
+    if getattr(args, "report_to_platform", False):
+        outcome = report_audit_to_platform(
+            report,
+            repo=args.repo,
+            base_url=os.environ.get("ARC_ONE_API_BASE_URL", "").strip(),
+            token=os.environ.get("ARC_ONE_BEARER_TOKEN", "").strip(),
+            # 🔴 El scope se manda honesto: el CLI es el único que sabe cuánto miró, y del
+            # otro lado ese dato decide si el audit puede archivar Hallazgos.
+            scope=resolve_scope(scan_all=args.scan_all),
+            agent_id=getattr(args, "agent_id", "") or "",
+            debug_sub=os.environ.get("ARC_ONE_DEBUG_SUB", ""),
+            repo_manifest=_safe_manifest(args.manifest),
+        )
+        if outcome.delivered:
+            print(
+                f"Arc One: reporte de audit registrado ({outcome.report_id}) "
+                f"para el agente {outcome.agent_id}.",
+                file=sys.stderr,
+            )
+        else:
+            print(f"WARN: el audit NO se reportó a Arc One — {outcome.reason}", file=sys.stderr)
+
     if args.format == "json":
         payload = report_to_json(report)
     elif args.format == "pr-comment":
-        payload = report_to_pr_comment(report)
+        payload = report_to_pr_comment(report, outcome) + triangulation_to_pr_comment(outcome)
     else:
-        payload = report_to_markdown(report)
+        payload = report_to_markdown(report, outcome) + triangulation_to_pr_comment(outcome)
 
     if args.output:
         with open(args.output, "w", encoding="utf-8") as fh:
@@ -195,6 +243,17 @@ def main(argv: list[str] | None = None) -> None:
     p_audit.add_argument("--base", default="origin/main", help="Git base ref for diff")
     p_audit.add_argument("--scan-all", action="store_true", help="Scan all scoped files, not just git diff")
     p_audit.add_argument(
+        "--exclude",
+        action="append",
+        default=[],
+        metavar="GLOB",
+        help=(
+            "Ruta a excluir del escaneo, además de las excluidas por default (repetible). "
+            "Para código que no es del agente: tooling de CI, scripts de integración, "
+            "fixtures. Lo excluido NO se mira — usalo con criterio."
+        ),
+    )
+    p_audit.add_argument(
         "--static-only",
         action="store_true",
         default=False,
@@ -216,6 +275,20 @@ def main(argv: list[str] | None = None) -> None:
         help="Finding codes that fail CI (e.g. MANIFEST_STALE). Implies --no-warn-only when matched.",
     )
     p_audit.add_argument("--no-warn-only", dest="warn_only", action="store_false")
+    p_audit.add_argument(
+        "--report-to-platform",
+        action="store_true",
+        default=False,
+        help=(
+            "Reportar el resultado a Arc One (endpoint con estado): materializa Hallazgos "
+            "y devuelve la triangulación. Nunca rompe el CI si falla."
+        ),
+    )
+    p_audit.add_argument(
+        "--agent-id",
+        default=os.environ.get("ARC_ONE_AGENT_ID", ""),
+        help="Agente al que pertenece este repositorio (si no, se resuelve por nombre_canonico)",
+    )
     p_audit.set_defaults(func=_cmd_audit)
 
     p_gen = sub.add_parser("generate", help="Bootstrap arc-one.agent.yaml from repo scan")

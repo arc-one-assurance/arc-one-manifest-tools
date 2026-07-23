@@ -16,7 +16,7 @@ Toda la lógica de **validación**, **CI Gate** (drift + semver) y **registro** 
 
 | Componente | Descripción |
 |------------|-------------|
-| **CLI** `arc-one-manifest` | `validate` · `gate` · `register` · `audit` *(v1.2)* · `generate` *(v1.3)* |
+| **CLI** `arc-one-manifest` | `validate` · `gate` · `register` · `audit` *(v1.2 · reporta a Arc One desde v1.5)* · `generate` *(v1.3)* |
 | **Composite action** `setup@v1.0.0` | Instala el CLI en GitHub Actions |
 | **Reusable workflows** | `manifest-pr-preview.yml` · `manifest-register.yml` |
 
@@ -32,6 +32,7 @@ export ARC_ONE_BEARER_TOKEN=arc1_...
 
 arc-one-manifest validate arc-one.agent.yaml
 arc-one-manifest audit arc-one.agent.yaml --scan-all --warn-only
+arc-one-manifest audit arc-one.agent.yaml --scan-all --report-to-platform   # v1.5
 arc-one-manifest generate --repo . --dry-run
 arc-one-manifest gate arc-one.agent.yaml
 arc-one-manifest register arc-one.agent.yaml --dry-run
@@ -71,14 +72,35 @@ jobs:
 
 Detalle: [`docs/SCHEMA.md`](docs/SCHEMA.md).
 
-### Manifest Intelligence (roadmap)
+### Manifest Intelligence
 
-Capa futura que cierra el loop **código ↔ manifest**:
+Cierra el loop **código ↔ manifiesto ↔ Arc One**:
 
-- **`audit`** — detecta drift cuando el código cambia pero el YAML no ([diseño completo](docs/MANIFEST_INTELLIGENCE.md))
-- **`generate`** — propone un manifest desde cero leyendo el repo
+- **`audit`** — detecta cuándo el código cambia y el YAML no ([diseño completo](docs/MANIFEST_INTELLIGENCE.md))
+- **`generate`** — propone un manifiesto desde cero leyendo el repo
 
-Estado: diseño aprobado · Fase 1 (extractores estáticos) pendiente de implementación.
+**`--report-to-platform` (v1.5.0)** manda el resultado del audit a Arc One, que triangula
+server-side y devuelve las tres comparaciones para el comment del PR:
+
+| Pata | Compara | Lo que te dice |
+|---|---|---|
+| 1 | código ↔ tu Manifiesto | *"el código hace algo que tu YAML no declara"* |
+| 2 | tu Manifiesto ↔ Arc One | *"lo cambiaste y no lo registraste"* |
+| 3 | **código ↔ Arc One** | *"lo que Arc One gobierna no es lo que el agente hace"* |
+
+Dos cosas que conviene saber:
+
+- **El alcance viaja honesto.** Con `--scan-all` se reporta `full`; sin él, `diff`. Del lado
+  de Arc One ese dato decide si el audit puede **cerrar** diferencias anteriores: un `diff`
+  informa lo que ve y no cierra nada. *Lo que no se miró no es lo que dejó de existir.*
+- **Si el reporte no se puede entregar, el CLI lo dice fuerte — y el CI sigue.** Arc One
+  detecta y avisa, no frena merges. Pero nunca en silencio: el motivo aparece en el log y en
+  el comment del PR, porque "todo en orden" y "no pude reportar" no pueden verse igual.
+
+El repositorio se resuelve a su agente por `--agent-id` (o `ARC_ONE_AGENT_ID`); si no, por
+el `agent_id` que el Manifiesto exportado de Arc One ya trae; y si tampoco, por el **nombre
+canónico derivado de `name`** — la misma regla que aplica el `gate` y la misma que usa Arc
+One al registrar. El Manifiesto no declara el canónico: se deriva.
 
 ---
 

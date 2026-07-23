@@ -21,6 +21,7 @@ from arc_one_manifest.intelligence.git_diff import (
 from arc_one_manifest.intelligence.judge import run_judge, run_platform_judge
 from arc_one_manifest.intelligence.manifest_summary import declared_ids_for_section, summarize_manifest
 from arc_one_manifest.intelligence.models import AuditFinding, AuditReport, CodeSignal, ManifestSummary
+from arc_one_manifest.intelligence.verdict import clean_verdict_line
 
 
 def _platform_creds() -> tuple[str, str] | None:
@@ -165,11 +166,15 @@ def run_audit(
         targets = changed_files(repo_path, base_ref, include, exclude)
 
     signals: list[CodeSignal] = []
+    files_scanned = 0
     for file_path in targets:
         if file_path.resolve() == manifest_file:
             continue
         rel = file_path.relative_to(repo_path).as_posix()
         lines = read_file_lines(file_path)
+        # Se cuenta lo que efectivamente se ABRIÓ, no lo que se pensaba mirar: es el dato
+        # que del otro lado distingue "no encontré nada" de "no busqué" (WS180).
+        files_scanned += 1
         signals.extend(extract_all_signals(rel, lines))
 
     findings = static_findings(signals, summary, min_confidence=min_confidence)
@@ -219,6 +224,9 @@ def run_audit(
         findings=findings,
         clean=clean,
         judge_model=judge_model,
+        scan_all=scan_all,
+        files_scanned=files_scanned,
+        excludes=tuple(exclude),
     )
 
 
@@ -226,18 +234,30 @@ def report_to_json(report: AuditReport) -> str:
     return json.dumps(report.to_dict(), indent=2, ensure_ascii=False)
 
 
-def report_to_markdown(report: AuditReport) -> str:
+def report_to_markdown(report: AuditReport, outcome=None) -> str:
+    """El resumen en markdown. ⚠️ Es el formato del camino que REPORTA Y MATERIALIZA.
+
+    🔴 `outcome` no es decorativo (WS180). Este bloque pintaba `✅ Sin drift` mirando sólo
+    `report.clean` — sin consultar el alcance ni la triangulación que el CLI le concatena
+    doce líneas abajo. Con las mismas señales, el mismo texto decía "✅ Sin drift" arriba y
+    "🔎 2 diferencias" después. El `--format pr-comment` ya respetaba la regla; éste, que es
+    el que usan el workflow de Nova y `manifest-register.yml`, había quedado afuera.
+
+    El veredicto vive en `verdict.py` y es el mismo para los dos formatos: **una afirmación
+    de limpieza no puede depender de en qué formato se imprima.**
+    """
     lines = [
         "## Manifest Drift Guard",
         "",
         f"- Manifest: `{report.manifest_path}`",
         f"- Base ref: `{report.base_ref}`",
+        f"- Alcance: {'repositorio completo (`full`)' if report.scan_all else 'archivos del cambio (`diff`)'}",
         f"- Modo: {'estático' if report.static_only else 'LLM judge'}",
         f"- Señales: {len(report.code_signals)} · Findings: {len(report.findings)}",
         "",
     ]
     if report.clean:
-        lines.append("✅ Sin drift detectado entre código y manifest.")
+        lines.append(clean_verdict_line(report, outcome))
         return "\n".join(lines)
 
     lines.append("| Severidad | Finding | Evidencia |")

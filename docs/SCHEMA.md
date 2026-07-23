@@ -85,6 +85,7 @@ arc-one.agent.yaml
        ▼
 ┌──────────────────────────┐
 │ arc-one-manifest audit    │  ← [v1.2] código ↔ manifest (drift guard)
+│   --report-to-platform    │  ← [v1.5] + reporta a Arc One → triangulación
 └──────────────────────────┘
        │
        ▼
@@ -104,6 +105,53 @@ arc-one.agent.yaml
 ```
 
 Ver diseño de la capa `audit` / `generate`: [`MANIFEST_INTELLIGENCE.md`](MANIFEST_INTELLIGENCE.md).
+
+### `audit --report-to-platform` (v1.5.0)
+
+`POST /api/agentes/{id}/manifest-intelligence/audit-result` · Bearer `arc1_…`
+
+**Body:**
+
+| Campo | Tipo | Nota |
+|---|---|---|
+| `manifestSummary` | objeto \| `null` | resumen del YAML del repo. `null` = no se pudo leer → las patas 1 y 2 quedan **sin evaluar** (que no es "limpias") |
+| `codeSignals` | lista | las señales que extrajo el CLI, tal cual |
+| `scope` | `"diff"` \| `"full"` | **obligatorio y honesto** · `full` sólo con `--scan-all` |
+| `commitSha` | string \| `null` | del CI (`GITHUB_SHA`) o del git local |
+| `manifestChangedInPr` | bool | si el cambio tocó el propio Manifiesto |
+
+El repositorio y la corrida viajan en los headers `X-Arc-One-Repo` / `X-Arc-One-Run`, que
+son la única señal de vida de la conexión de repos (Arc One nunca entra al repo del cliente).
+
+**Respuesta (201):** la triangulación completa — `legs[]` (las 3 patas, cada una con
+`available` y sus diferencias), `arcOneSummary`, `catalog`, `totals`, `context`,
+`reconcile` (**qué se archivó y qué no**) y los `findings` materializados. El CLI la
+renderiza en `--format pr-comment`.
+
+⚠️ **Que la entrega falle no rompe el CI** — pero el motivo va al log y al comment. Nunca
+en silencio.
+
+### `audit --exclude GLOB` (v1.5.0)
+
+Saca rutas del escaneo, además de las que ya se excluyen por default (repetible). Es para
+**código que está en el repo pero no describe lo que el agente hace**: tooling de CI,
+scripts de integración, fixtures.
+
+```bash
+arc-one-manifest audit --scan-all --exclude 'scripts/**' --exclude 'examples/**'
+```
+
+⚠️ **Lo excluido no se mira.** Es un recorte del alcance, no un silenciador de hallazgos:
+si algo real vive ahí, Arc One deja de verlo. El default incluye `scripts/**` a propósito
+—en la mayoría de los repos ahí aparece comportamiento real del agente— y el recorte es
+una decisión del cliente, repo por repo.
+
+### Qué pasa cuando el extractor no puede identificar algo
+
+Un secreto o un servidor MCP que se detecta pero **no se puede nombrar** viaja con un id
+reservado (`runtime-secret`, `custom-mcp`). Arc One no lo presenta como si fuera el nombre
+del recurso: el Hallazgo dice que **no se pudo identificar**, apunta al archivo y la línea
+—que es lo accionable— y va con la **certeza más baja**. Es el hueco reservado al juez LLM.
 
 ---
 
@@ -148,6 +196,7 @@ Centro de control permite editar **valores** exportados al manifest, no agregar/
 | `1.1` | `v1.x` | RegistroManifestV2Body actual |
 | `1.2` | `v1.x` | RegistroManifestV2Body actual |
 | `1.3` | `v1.4.x+` | + `identidad.infraBinding` (opcional) |
+| `1.3` | `v1.5.x+` | + `audit --report-to-platform` (no cambia el YAML) |
 
 > ⚠️ **`v1.3.2` NO sirve para `manifest_version: "1.3"`.** Esa versión se publicó antes
 > del bloque: ni lo valida ni lo manda al registrar. Un cliente que pinee `@v1.3.2` y

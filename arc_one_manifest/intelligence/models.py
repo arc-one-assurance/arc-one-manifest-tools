@@ -32,6 +32,25 @@ class Evidence:
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
 
+    def to_wire_dict(self) -> dict[str, Any]:
+        """La evidencia que sale del repositorio: **archivo y línea, nunca el código.**
+
+        🔴 WS180 · decisión de Tomás. El `snippet` es la línea de código cruda, y los
+        extractores apuntan justo a las líneas que matchean `SECRET|TOKEN|PASSWORD`: un
+        secreto escrito a mano terminaba **en texto plano en la base de Arc One**. El doc 16a
+        promete, con todas las letras, que *el código nunca sale del repositorio del cliente*
+        — y esa promesa se dice en una sala con un banco enfrente.
+
+        Sacarlo no cuesta nada hoy: se verificó que el `snippet` **no se muestra en ninguna
+        pantalla, ni en el comment del PR, ni en el copy de los Hallazgos**. Se guardaba y no
+        se leía. Y lo accionable sin él ya está definido por la propia fase: cuando no hay
+        nombre, lo accionable es **`archivo:línea`** (regla 13 · WS179).
+
+        Sigue viviendo en el artefacto JSON local del CI del cliente, que nunca sale de su
+        repositorio: el recorte es del cable, no del análisis.
+        """
+        return {"file": self.file, "line": self.line}
+
 
 @dataclass
 class CodeSignal:
@@ -44,6 +63,12 @@ class CodeSignal:
     def to_dict(self) -> dict[str, Any]:
         out = asdict(self)
         out["evidence"] = self.evidence.to_dict()
+        return out
+
+    def to_wire_dict(self) -> dict[str, Any]:
+        """La señal como viaja a Arc One: sin el código fuente. Ver ``Evidence.to_wire_dict``."""
+        out = asdict(self)
+        out["evidence"] = self.evidence.to_wire_dict()
         return out
 
 
@@ -101,6 +126,18 @@ class AuditReport:
     findings: list[AuditFinding]
     clean: bool
     judge_model: str | None = None
+    # 🔴 Cuánto miró este audit. ``clean`` sin esto es ambiguo: "no encontré nada" y "no
+    # busqué en casi ningún lado" se leen igual. Quien redacte para un humano lo necesita.
+    scan_all: bool = False
+    # 🔴 Las otras dos mitades del "cuánto miró" (WS180). `scan_all` dice la INTENCIÓN;
+    # estos dos dicen el HECHO:
+    #   - `files_scanned`: cuántos archivos se abrieron de verdad. **Cero señales tras abrir
+    #     200 archivos es limpieza; cero señales tras abrir CERO archivos es ceguera**, y sin
+    #     este número el servidor no puede distinguirlos — y `full` lo autoriza a archivar.
+    #   - `excludes`: qué recortó el usuario por debajo del alcance. El día que alguien suma
+    #     una exclusión, esa primera corrida archivaría lo que vivía ahí sin haberlo abierto.
+    files_scanned: int = 0
+    excludes: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         out = {
@@ -111,6 +148,11 @@ class AuditReport:
             "codeSignals": [s.to_dict() for s in self.code_signals],
             "findings": [f.to_dict() for f in self.findings],
             "clean": self.clean,
+            # El artefacto JSON hereda la misma honestidad que el markdown: sin alcance,
+            # `clean` es una afirmación sin sujeto.
+            "scanAll": self.scan_all,
+            "filesScanned": self.files_scanned,
+            "excludes": list(self.excludes),
         }
         if self.judge_model:
             out["judgeModel"] = self.judge_model

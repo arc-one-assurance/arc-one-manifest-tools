@@ -34,7 +34,10 @@ on:
         description: Human label for PR comment (e.g. ws_bbva_poc)
       enable_audit:
         type: boolean
-        default: false
+        # ⭐ Default `true` desde v1.5 (Card 6 · doc 16a §5c). Estaba en `false`, y era uno de
+        # los cuatro tapones por los que Manifest Intelligence no corría para NINGÚN agente:
+        # la pieza estaba construida y apagada.
+        default: true
         description: Run Manifest Intelligence audit (code ↔ manifest drift guard)
     secrets:
       ARC_ONE_API_BASE_URL:
@@ -78,22 +81,59 @@ jobs:
 
       - name: Manifest Intelligence — audit código ↔ manifest
         if: inputs.enable_audit
+        # 🔴 WS180. `enable_audit` pasó a `true` por default (Card 6), pero `tools_ref` sigue
+        # con default `v1.0.0`, y ese tag **no tiene el subcomando `audit`** (aparece en
+        # v1.2.1). Un cliente que actualice el reusable sin pasar `tools_ref` —que es como lo
+        # muestra el README— recibía `invalid choice: 'audit'`, exit 2, job rojo y PR
+        # bloqueado. Un sistema declarativo que "avisa y no frena" frenando por una feature
+        # nueva. El gemelo `manifest-register.yml` ya lo tenía.
+        continue-on-error: true
         env:
+          # 🔴 Tapón 3 (Card 6): este step exportaba SÓLO la LLM key, así que
+          # `_platform_creds()` volvía vacío y el juez hosteado nunca se activaba — caía a
+          # estático **en silencio**. Con estas dos, el juez de Arc One entra en juego.
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
           ARC_ONE_LLM_API_KEY: ${{ secrets.ARC_ONE_LLM_API_KEY }}
         run: |
+          # El guard de compatibilidad se pregunta por CAPACIDAD, no por número de versión —
+          # pero antes sólo cubría `--report-to-platform`. Si el pin es tan viejo que no
+          # tiene ni el subcomando, no hay nada que auditar: se dice y se sale limpio.
+          if ! arc-one-manifest audit --help >/dev/null 2>&1; then
+            echo "::warning::El CLI pineado (tools_ref=${{ inputs.tools_ref }}) no tiene el subcomando 'audit' (requiere v1.2.1+). El audit no corre. Pasá un tools_ref más nuevo para activar Manifest Intelligence."
+            exit 0
+          fi
           BASE="origin/${{ github.base_ref }}"
+          SCOPE_FLAG=""
+          REPORT_FLAG=""
           if [ "${{ github.event_name }}" != "pull_request" ]; then
+            # ⭐ Roles por evento (delta E · §5c Card 6): en PR el audit corre y COMENTA,
+            # sin reportar — es una preview de algo que todavía no pasó. Fuera del PR (push
+            # a la rama por defecto) sí reporta y materializa, y lo hace con `--scan-all`
+            # para que el alcance sea `full`: sólo un `full` tiene derecho a cerrar
+            # diferencias que ya no ve.
             BASE="HEAD"
+            SCOPE_FLAG="--scan-all"
+            if arc-one-manifest audit --help 2>/dev/null | grep -q -- "--report-to-platform"; then
+              REPORT_FLAG="--report-to-platform"
+            else
+              # Nunca en silencio: si el CLI pineado es viejo, se dice y se sigue.
+              echo "::warning::El CLI pineado (tools_ref=${{ inputs.tools_ref }}) no soporta --report-to-platform (requiere v1.5.0+). El audit corre, pero Arc One no se entera."
+            fi
           fi
           arc-one-manifest audit "${{ inputs.manifest_path }}" \
             --repo . \
             --base "$BASE" \
+            $SCOPE_FLAG \
             --format json \
             --output audit-report.json \
             --warn-only
           arc-one-manifest audit "${{ inputs.manifest_path }}" \
             --repo . \
             --base "$BASE" \
+            $SCOPE_FLAG \
+            $REPORT_FLAG \
             --format pr-comment \
             --output audit-comment.md \
             --warn-only

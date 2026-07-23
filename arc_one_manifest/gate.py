@@ -12,6 +12,7 @@ from typing import Any, Dict, Optional, Tuple
 import httpx
 import yaml
 
+from arc_one_manifest.canonical import canonical_name
 from arc_one_manifest.infra_binding import binding_accounts, canonical_bindings, raw_infra_binding
 from arc_one_manifest.material_paths import MATERIAL_PATHS
 from arc_one_manifest.register import ci_provenance_headers
@@ -242,17 +243,11 @@ def _agent_id_from_manifest(manifest: Dict[str, Any]) -> Optional[str]:
 
 
 def _canonical_name(manifest: Dict[str, Any]) -> str:
-    name = str(manifest.get("name") or "").strip()
-    if not name:
+    """El canónico del Manifiesto. El gate ES una compuerta: sin ``name``, corta."""
+    canonico = canonical_name(manifest)
+    if not canonico:
         raise SystemExit("manifest missing required field: name")
-    import re
-    import unicodedata
-
-    s = name.lower()
-    s = unicodedata.normalize("NFD", s)
-    s = "".join(ch for ch in s if unicodedata.category(ch) != "Mn")
-    s = re.sub(r"[^a-z0-9]+", "-", s)
-    return re.sub(r"(^-+|-+$)", "", s) or "agent"
+    return canonico
 
 
 def validate_gate(
