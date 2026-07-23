@@ -23,8 +23,8 @@
           { "asset_id": "core-banking-postgres", "relation_type": ["QUERY"] }
         ],
         "secrets_required": [
-          { "identifier": "NOVA_DB_SECRET" },
-          { "identifier": "aws-kms-secrets-manager" }
+          { "asset_id": "aws-kms-secrets-manager", "asset_name": "AWS KMS Secrets Manager" },
+          { "asset_id": "nova-db-secret" }
         ],
         "mcp_servers": [
           { "mcp_id": "core-banking-mcp", "mcp_name": "Core Banking MCP" }
@@ -35,7 +35,7 @@
         "agentModel": "anthropic/claude-sonnet-4-6",
         "dataStores": ["aws-s3", "redis"],
         "integrationEndpoints": ["core-banking-postgres"],
-        "secretsRequired": ["NOVA_DB_SECRET", "aws-kms-secrets-manager"],
+        "secretsRequired": ["aws-kms-secrets-manager", "nova-db-secret"],
         "mcpServers": ["core-banking-mcp"],
         "knowledgeBases": ["policies-kb"]
       }
@@ -105,6 +105,30 @@
         "secretsRequired": ["EL_BUENO"],
         "mcpServers": ["gana-mcp-id"],
         "knowledgeBases": ["gana-identifier"]
+      }
+    },
+    {
+      "name": "secretos con asset_id: la unica clave que el schema MADRE acepta (WS180)",
+      "manifest": {
+        "secrets_required": [
+          { "asset_id": "aws-kms-secrets-manager" },
+          { "assetId": "gcp-secret-manager" },
+          { "asset_id": "gana-asset-id", "identifier": "pierde", "id": "pierde-tambien" },
+          { "identifier": "SIN_ASSET_ID_SIGUE_VALIENDO" }
+        ]
+      },
+      "expected": {
+        "agentModel": null,
+        "dataStores": [],
+        "integrationEndpoints": [],
+        "secretsRequired": [
+          "SIN_ASSET_ID_SIGUE_VALIENDO",
+          "aws-kms-secrets-manager",
+          "gana-asset-id",
+          "gcp-secret-manager"
+        ],
+        "mcpServers": [],
+        "knowledgeBases": []
       }
     },
     {

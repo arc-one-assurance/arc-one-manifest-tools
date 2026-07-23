@@ -8,6 +8,11 @@ from arc_one_manifest.intelligence.extractors.env_names import (
     UNIDENTIFIED_SECRET_ID,
     secret_id_from_line,
 )
+from arc_one_manifest.intelligence.extractors.http_urls import (
+    ENDPOINT_CONFIDENCE,
+    HTTP_URL,
+    endpoint_id_from_url,
+)
 from arc_one_manifest.intelligence.models import CodeSignal, Evidence
 
 _BOTO3_CLIENT = re.compile(
@@ -16,8 +21,6 @@ _BOTO3_CLIENT = re.compile(
 _BOTO3_RESOURCE = re.compile(
     r"""boto3\.resource\s*\(\s*['"]([a-zA-Z0-9_-]+)['"]""",
 )
-_HTTP_URL = re.compile(r"""https?://[^\s'"]+""")
-
 _BOTO_SERVICE_MAP: dict[str, tuple[str, float]] = {
     "dynamodb": ("dynamodb", 0.92),
     "s3": ("aws-s3", 0.9),
@@ -164,18 +167,18 @@ def extract_python_ast_signals(path: str, lines: list[str]) -> list[CodeSignal]:
                     snippet=line,
                 )
 
-        for url_match in _HTTP_URL.finditer(line):
-            url = url_match.group(0)
-            if any(skip in url for skip in ("localhost", "127.0.0.1", "example.com")):
+        for url_match in HTTP_URL.finditer(line):
+            # La regla vive en `http_urls.py`, compartida con el extractor de TypeScript:
+            # la misma URL tiene que dar el mismo id en los dos lenguajes (WS180).
+            endpoint_id = endpoint_id_from_url(url_match.group(0))
+            if endpoint_id is None:
                 continue
-            slug = re.sub(r"^https?://", "", url).split("/")[0].lower()
-            slug = re.sub(r"[^a-z0-9.-]+", "-", slug)[:48]
             _append(
                 signals,
                 seen,
                 kind="integration_endpoint",
-                inferred_id=slug or "http-endpoint",
-                confidence=0.68,
+                inferred_id=endpoint_id,
+                confidence=ENDPOINT_CONFIDENCE,
                 section="integration_endpoints",
                 path=path,
                 line_no=idx,

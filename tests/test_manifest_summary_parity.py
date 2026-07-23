@@ -27,7 +27,7 @@ _FIXTURE = Path(__file__).parent / "fixtures" / "manifest_summary_parity.json"
 # sha256 del fixture compartido. La copia del platform tiene que dar EXACTAMENTE esto:
 #   arc-one-platform/apps/api/tests/test_manifest_triangulation.py::_PARITY_FIXTURE_SHA256
 # Dos valores distintos = las copias se separaron.
-_PARITY_FIXTURE_SHA256 = "c43dc569d0e32a0ddee3b877209d1ebec52537331b89bd02e50effded7cf1be5"
+_PARITY_FIXTURE_SHA256 = "154caea96af15cd19bf9419b67cfd8278e387a401097bdcb14a726f6e370246a"
 
 
 def _cases() -> list[dict]:

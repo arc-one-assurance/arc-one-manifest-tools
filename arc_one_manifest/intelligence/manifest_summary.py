@@ -45,6 +45,18 @@ def summarize_manifest(manifest: dict[str, Any]) -> ManifestSummary:
         ),
         secrets_required=_identifiers(
             manifest.get("secrets_required") or manifest.get("secretsRequired"),
+            # 🔴 `asset_id` PRIMERO y no opcional: es la **única** clave que el schema MADRE
+            # acepta para esta sección (`_validate_secrets`), la que emite la plantilla
+            # canónica y la que exporta el platform. Sin ella acá, todo agente que declare
+            # secretos como manda la plantilla recibía un Hallazgo falso —"registrado en Arc
+            # One y ya no declarado en el repo"— y encima con certeza ALTA, porque la pata 2
+            # compara dos documentos declarados y presume no tener inferencia. (WS180)
+            #
+            # ⚠️ El fixture de paridad tenía las dos implementaciones **de acuerdo en algo
+            # falso**, así que la red no podía cazarlo: por eso el caso `asset_id` es ahora
+            # explícito en `manifest_summary_parity.json`.
+            "asset_id",
+            "assetId",
             "identifier",
             "id",
             "name",
