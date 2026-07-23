@@ -33,6 +33,12 @@ on:
       workspace_label:
         type: string
         default: ""
+      enable_audit:
+        type: boolean
+        default: true
+        description: >-
+          Correr el audit de código y reportarlo a Arc One tras publicar la versión
+          (requiere CLI v1.5.0+; si el pin es viejo, avisa y sigue).
     secrets:
       ARC_ONE_API_BASE_URL:
         required: true
@@ -44,6 +50,9 @@ on:
         required: false
       AWS_SERVICE_URL:
         required: false
+      ARC_ONE_LLM_API_KEY:
+        required: false
+        description: Optional — habilita el juez LLM local en el audit (si no, juez hosteado o estático)
 
 permissions:
   contents: read
@@ -124,6 +133,46 @@ jobs:
             MANIFEST="${{ inputs.manifest_path }}"
           fi
           arc-one-manifest register "$MANIFEST" | tee registration.json
+
+      # ⭐ El momento en que el brazo CÓDIGO deja de morir en el CI (Card 6 · delta E):
+      # push a la rama por defecto = **materializa**. Corre DESPUÉS del registro, para que
+      # el reporte cuelgue de la versión vigente y no de la anterior.
+      #
+      # 🔴 Va SIN `if: steps.gate.outputs.skip_apply != 'true'` a propósito: el caso que esta
+      # fase vino a cubrir es justamente el push que **no** toca el manifiesto — ahí el gate
+      # dice "sin drift", no se publica versión, y el código igual puede haberse despegado
+      # de lo declarado. Saltar el audit cuando no hay versión nueva sería dejar ciego el
+      # único camino que mira el código.
+      - name: Manifest Intelligence — audit + reporte a Arc One
+        if: inputs.enable_audit
+        continue-on-error: true
+        env:
+          ARC_ONE_API_BASE_URL: ${{ secrets.ARC_ONE_API_BASE_URL }}
+          ARC_ONE_BEARER_TOKEN: ${{ secrets.ARC_ONE_BEARER_TOKEN }}
+          ARC_ONE_AGENT_ID: ${{ secrets.ARC_ONE_AGENT_ID }}
+          ARC_ONE_LLM_API_KEY: ${{ secrets.ARC_ONE_LLM_API_KEY }}
+        run: |
+          REPORT_FLAG=""
+          if arc-one-manifest audit --help 2>/dev/null | grep -q -- "--report-to-platform"; then
+            REPORT_FLAG="--report-to-platform"
+          else
+            echo "::warning::El CLI pineado (tools_ref=${{ inputs.tools_ref }}) no soporta --report-to-platform (requiere v1.5.0+). El audit corre, pero Arc One no se entera."
+          fi
+          # `--scan-all` → alcance `full`: es el único que puede cerrar diferencias que ya
+          # no se ven. Un `diff` acá dejaría hallazgos viejos abiertos para siempre.
+          arc-one-manifest audit "${{ inputs.manifest_path }}" \
+            --repo . \
+            --scan-all \
+            $REPORT_FLAG \
+            --format markdown \
+            --warn-only | tee audit.log
+          {
+            echo "### Manifest Intelligence"
+            echo ""
+            echo '```'
+            cat audit.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Resumen — versión publicada
         if: steps.apply.outcome == 'success'

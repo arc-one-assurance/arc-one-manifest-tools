@@ -30,7 +30,6 @@ from typing import Any, Dict, Optional
 
 import httpx
 
-from arc_one_manifest.intelligence.git_diff import DEFAULT_EXCLUDE, DEFAULT_INCLUDE, changed_files
 from arc_one_manifest.intelligence.models import AuditReport
 from arc_one_manifest.register import ci_provenance_headers
 
@@ -86,6 +85,12 @@ def _manifest_changed_in_pr(repo: str, manifest_path: str, base_ref: str) -> boo
     No es cosmético: explica por sí solo una diferencia entre el YAML del repo y lo
     registrado en Arc One (*"lo cambiaste y todavía no lo registraste"*). Sin este dato, esa
     divergencia parece un descuido cuando puede ser un cambio en curso.
+
+    🔴 **Se pregunta a git directamente, a propósito.** El `changed_files` del audit cae a
+    *"listar el repo entero"* cuando git falla (checkout shallow, sin base ref) — que es lo
+    correcto para escanear, y **exactamente lo contrario** de lo correcto para esta pregunta:
+    haría que el manifiesto "cambió siempre". Acá, no poder averiguarlo es ``False``: no
+    afirmamos un hecho que no comprobamos.
     """
     try:
         root = Path(repo).resolve()
@@ -93,10 +98,27 @@ def _manifest_changed_in_pr(repo: str, manifest_path: str, base_ref: str) -> boo
     except OSError:
         return False
     try:
-        files = changed_files(root, base_ref, DEFAULT_INCLUDE + ("*.yaml", "*.yml"), DEFAULT_EXCLUDE)
-    except Exception:  # pragma: no cover — defensivo: nunca romper por un dato de contexto
+        proc = subprocess.run(
+            ["git", "diff", "--name-only", f"{base_ref}...HEAD"],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
         return False
-    return any(Path(f).resolve() == target for f in files)
+    if proc.returncode != 0:
+        return False
+    for line in proc.stdout.splitlines():
+        rel = line.strip()
+        if not rel:
+            continue
+        try:
+            if (root / rel).resolve() == target:
+                return True
+        except OSError:  # pragma: no cover — rutas raras del diff
+            continue
+    return False
 
 
 def _headers(token: str, debug_sub: str) -> Dict[str, str]:
